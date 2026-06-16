@@ -1,5 +1,5 @@
 // ================================================================
-//  INVENTARIO DUMASHE — app.js (con roles de usuario)
+//  INVENTARIO DUMASHE — app.js (con roles y modo temporal)
 // ================================================================
 
 // ── Globals ──────────────────────────────────────────────────────
@@ -9,6 +9,12 @@ let categoriasSet = new Set();
 const PASSWORD_ADMIN = "1330";
 const PASSWORD_GUEST = "invitado";
 let currentUserRole = "guest";
+
+// ── Modo Temporal ──────────────────────────────────────────────
+let modoTemporal = false;
+let productosTemporales = [];
+let stockTemporal = {};
+let productosOriginales = [];
 
 // ── Telegram config ───────────────────────────────────────────────
 const TELEGRAM_BOT_TOKEN = "8734858031:AAHFZreCoRJtCAgPPWeoawoPzuxiMZXyjQU";
@@ -30,6 +36,7 @@ const hiddenContainer = document.getElementById("hiddenProductsContainer");
 const toggleHiddenBtn = document.getElementById("toggleHiddenBtn");
 const categoriasChecklist = document.getElementById("categoriasChecklist");
 const nuevoInventarioBtn = document.getElementById("nuevoInventarioBtn");
+const btnModoTemporal = document.getElementById("btnModoTemporal");
 const exportarPdfBtn = document.getElementById("exportarPdfBtn");
 const copiarMarkdownBtn = document.getElementById("copiarMarkdownBtn");
 const descargarMarkdownBtn = document.getElementById("descargarMarkdownBtn");
@@ -71,6 +78,10 @@ async function cargarProductosDesdeGist() {
 }
 
 async function guardarProductosEnGist(productosArray) {
+  if (modoTemporal) {
+    toast("En modo temporal no se guardan cambios en GitHub", "info");
+    return true; // simulamos éxito
+  }
   try {
     const respuesta = await fetch(WORKER_URL, {
       method: "POST",
@@ -89,6 +100,38 @@ async function guardarProductosEnGist(productosArray) {
     console.error("Error guardando a través del Worker:", error);
     throw error;
   }
+}
+
+// ================================================================
+//  OBTENER PRODUCTOS Y STOCK SEGÚN MODO
+// ================================================================
+function obtenerProductosActuales() {
+  return modoTemporal ? productosTemporales : productosData;
+}
+
+function obtenerStockActual(sku) {
+  if (modoTemporal) {
+    return stockTemporal[sku] || 0;
+  }
+  return stockStorage[sku] || 0;
+}
+
+function actualizarStockTemporal(sku, cantidad) {
+  if (!modoTemporal) return actualizarStock(sku, cantidad);
+  const num = parseInt(cantidad, 10);
+  if (isNaN(num) || num <= 0) return;
+  stockTemporal[sku] = (stockTemporal[sku] || 0) + num;
+  actualizarCardStock(sku, stockTemporal[sku]);
+  toast(`+${num} · total: ${stockTemporal[sku]}`, "success");
+}
+
+function restarStockTemporal(sku, cantidad) {
+  if (!modoTemporal) return restarStock(sku, cantidad);
+  const num = parseInt(cantidad, 10);
+  if (isNaN(num) || num <= 0) return;
+  stockTemporal[sku] = Math.max(0, (stockTemporal[sku] || 0) - num);
+  actualizarCardStock(sku, stockTemporal[sku]);
+  toast(`−${num} · total: ${stockTemporal[sku]}`, "info");
 }
 
 // ================================================================
@@ -239,10 +282,15 @@ function cargarStocks() {
   }
 }
 function guardarStocks() {
+  if (modoTemporal) return; // no guardar stocks temporales
   localStorage.setItem("inventarioStocks", JSON.stringify(stockStorage));
 }
 
 function actualizarStock(sku, valorSuma) {
+  if (modoTemporal) {
+    actualizarStockTemporal(sku, valorSuma);
+    return;
+  }
   const num = parseInt(valorSuma, 10);
   if (isNaN(num) || num <= 0) return;
   stockStorage[sku] = (stockStorage[sku] || 0) + num;
@@ -252,6 +300,10 @@ function actualizarStock(sku, valorSuma) {
 }
 
 function restarStock(sku, valor) {
+  if (modoTemporal) {
+    restarStockTemporal(sku, valor);
+    return;
+  }
   const num = parseInt(valor, 10);
   if (isNaN(num) || num <= 0) return;
   stockStorage[sku] = Math.max(0, (stockStorage[sku] || 0) - num);
@@ -279,6 +331,13 @@ function actualizarCardStock(sku, total) {
 //  CRUD PRODUCTOS (con persistencia y verificación de rol)
 // ================================================================
 async function agregarProductoNuevo(categoria) {
+  if (modoTemporal) {
+    toast(
+      "En modo temporal no se pueden agregar productos al inventario principal",
+      "error",
+    );
+    return;
+  }
   if (currentUserRole !== "admin") {
     toast("No tienes permiso para agregar productos", "error");
     return;
@@ -349,6 +408,10 @@ async function agregarProductoNuevo(categoria) {
 }
 
 async function editarProducto(sku, nombreActual, imagenActual) {
+  if (modoTemporal) {
+    toast("En modo temporal no se pueden editar productos", "error");
+    return;
+  }
   if (currentUserRole !== "admin") {
     toast("No tienes permiso para editar productos", "error");
     return;
@@ -401,6 +464,10 @@ async function editarProducto(sku, nombreActual, imagenActual) {
 }
 
 async function eliminarProducto(sku, nombre) {
+  if (modoTemporal) {
+    toast("En modo temporal no se pueden eliminar productos", "error");
+    return;
+  }
   if (currentUserRole !== "admin") {
     toast("No tienes permiso para eliminar productos", "error");
     return;
@@ -438,8 +505,11 @@ async function eliminarProducto(sku, nombre) {
 //  ÍNDICE DE CATEGORÍAS (navegación por scroll, sin filtrado)
 // ================================================================
 function construirIndiceCategorias() {
-  const categorias = Array.from(categoriasSet).sort();
-  const counts = contarProductosPorCategoria();
+  const productos = obtenerProductosActuales();
+  const cats = new Set();
+  productos.forEach((p) => cats.add(p.categoria));
+  const categorias = Array.from(cats).sort();
+  const counts = contarProductosPorCategoria(productos);
 
   let html = "";
   for (let cat of categorias) {
@@ -464,18 +534,18 @@ function scrollToCategoria(anchorId) {
 }
 
 function actualizarConteosCategorias() {
-  const counts = contarProductosPorCategoria();
-  for (let cat of categoriasSet) {
+  const productos = obtenerProductosActuales();
+  const counts = contarProductosPorCategoria(productos);
+  for (let cat of Object.keys(counts)) {
     const anchorId = categoriaAnchorId(cat);
     const el = document.getElementById(`count_${anchorId}`);
     if (el) el.textContent = counts[cat] || 0;
   }
 }
 
-function contarProductosPorCategoria() {
+function contarProductosPorCategoria(productos) {
   const counts = {};
-  for (let p of productosData)
-    counts[p.categoria] = (counts[p.categoria] || 0) + 1;
+  for (let p of productos) counts[p.categoria] = (counts[p.categoria] || 0) + 1;
   return counts;
 }
 
@@ -485,9 +555,10 @@ function contarProductosPorCategoria() {
 let sortableInstances = [];
 
 function buildProductCard(prod, extraStyle = "", role = "guest") {
-  const total = stockStorage[prod.sku] > 0 ? stockStorage[prod.sku] : "";
+  const total =
+    obtenerStockActual(prod.sku) > 0 ? obtenerStockActual(prod.sku) : "";
   const placeholder = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60'%3E%3Crect width='60' height='60' fill='%23222'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' dy='.3em' fill='%23555' font-size='20'%3E%3F%3C/text%3E%3C/svg%3E`;
-  const isAdmin = role === "admin";
+  const isAdmin = role === "admin" && !modoTemporal;
   const actionButtons = isAdmin
     ? `
     <div class="product-actions">
@@ -540,10 +611,11 @@ function renderizarProductos() {
   sortableInstances.forEach((s) => s.destroy());
   sortableInstances = [];
   const role = currentUserRole || "guest";
+  const productos = obtenerProductosActuales();
 
   const grupos = {};
   const ordenCats = [];
-  for (let p of productosData) {
+  for (let p of productos) {
     if (!grupos[p.categoria]) {
       grupos[p.categoria] = [];
       ordenCats.push(p.categoria);
@@ -568,25 +640,27 @@ function renderizarProductos() {
   productosContainer.innerHTML =
     html || '<div class="empty">Sin productos.</div>';
 
-  productosContainer.querySelectorAll(".sortable-list").forEach((list) => {
-    sortableInstances.push(
-      Sortable.create(list, {
-        handle: ".drag-handle",
-        animation: 160,
-        ghostClass: "sortable-ghost",
-        chosenClass: "sortable-chosen",
-        onEnd(evt) {
-          if (evt.oldIndex === evt.newIndex) return;
-          reordenarCategoria(
-            list.dataset.categoria,
-            Array.from(list.querySelectorAll(".producto-card")).map(
-              (c) => c.dataset.sku,
-            ),
-          );
-        },
-      }),
-    );
-  });
+  if (!modoTemporal) {
+    productosContainer.querySelectorAll(".sortable-list").forEach((list) => {
+      sortableInstances.push(
+        Sortable.create(list, {
+          handle: ".drag-handle",
+          animation: 160,
+          ghostClass: "sortable-ghost",
+          chosenClass: "sortable-chosen",
+          onEnd(evt) {
+            if (evt.oldIndex === evt.newIndex) return;
+            reordenarCategoria(
+              list.dataset.categoria,
+              Array.from(list.querySelectorAll(".producto-card")).map(
+                (c) => c.dataset.sku,
+              ),
+            );
+          },
+        }),
+      );
+    });
+  }
 
   hiddenContainer.innerHTML = '<div class="empty">—</div>';
 
@@ -595,6 +669,10 @@ function renderizarProductos() {
 }
 
 async function reordenarCategoria(categoria, skusNuevoOrden) {
+  if (modoTemporal) {
+    toast("En modo temporal no se puede reordenar", "error");
+    return;
+  }
   if (currentUserRole !== "admin") {
     toast("No tienes permiso para reordenar productos", "error");
     return;
@@ -692,6 +770,195 @@ function bindCardEvents() {
 }
 
 // ================================================================
+//  MODO TEMPORAL
+// ================================================================
+async function iniciarModoTemporal() {
+  if (modoTemporal) {
+    toast("Ya estás en modo temporal", "info");
+    return;
+  }
+
+  // Guardar copia de los productos originales y stocks
+  productosOriginales = JSON.parse(JSON.stringify(productosData));
+  // Crear array de checkboxes para seleccionar productos
+  const fields = [
+    {
+      id: "instruccion",
+      type: "text",
+      label: "Selecciona los productos para el conteo temporal",
+      required: false,
+      placeholder: "Marca los que necesitas contar",
+    },
+  ];
+
+  // Añadir un checkbox por producto (usando un campo personalizado)
+  // Como no podemos poner checkboxes fácilmente en el modal genérico, vamos a generar un campo "textarea" o "select"
+  // Mejor usar un modal específico con lista de checkboxes.
+  // Voy a implementar un modal personalizado para este caso.
+  const modal = document.getElementById("customModal");
+  const titleEl = document.getElementById("customModalTitle");
+  const subtitleEl = document.getElementById("customModalSubtitle");
+  const fieldsEl = document.getElementById("customModalFields");
+  const cancelBtn = document.getElementById("customModalCancel");
+  const confirmBtn = document.getElementById("customModalConfirm");
+
+  titleEl.textContent = "Seleccionar productos para conteo temporal";
+  subtitleEl.textContent =
+    "Elige los productos que deseas incluir en el conteo temporal (puedes añadir productos nuevos después)";
+  subtitleEl.style.display = "block";
+  confirmBtn.textContent = "Iniciar conteo";
+  confirmBtn.className = "";
+
+  // Generar checkboxes
+  let checkboxesHtml = productosData
+    .map(
+      (p, index) => `
+    <div class="modal-field-group" style="flex-direction: row; align-items: center; gap: 8px;">
+      <input type="checkbox" id="prod_${index}" value="${escapeAttr(p.sku)}" checked />
+      <label for="prod_${index}" style="font-size: 0.9rem;">${escapeHtml(p.nombre)} (${escapeHtml(p.sku)})</label>
+    </div>
+  `,
+    )
+    .join("");
+
+  // Campo para agregar producto temporal
+  checkboxesHtml += `
+    <div class="modal-field-group" style="margin-top: 12px; border-top: 1px solid var(--border); padding-top: 12px;">
+      <label style="font-size: 0.8rem; color: var(--text-muted);">Agregar producto temporal (opcional)</label>
+      <div style="display: flex; gap: 8px;">
+        <input class="modal-field-input" id="temp_sku" type="text" placeholder="SKU" style="flex: 1;" />
+        <input class="modal-field-input" id="temp_nombre" type="text" placeholder="Nombre" style="flex: 2;" />
+      </div>
+    </div>
+  `;
+
+  fieldsEl.innerHTML = checkboxesHtml;
+
+  modal.style.display = "flex";
+  if (typeof lucide !== "undefined")
+    requestAnimationFrame(() => lucide.createIcons());
+
+  // Enfocar primer checkbox (opcional)
+  const firstCheck = fieldsEl.querySelector('input[type="checkbox"]');
+  if (firstCheck) setTimeout(() => firstCheck.focus(), 80);
+
+  return new Promise((resolve) => {
+    function cleanup() {
+      modal.style.display = "none";
+      cancelBtn.removeEventListener("click", onCancel);
+      confirmBtn.removeEventListener("click", onConfirm);
+      modal.removeEventListener("click", onBackdrop);
+    }
+    function onCancel() {
+      cleanup();
+      resolve(null);
+    }
+    function onConfirm() {
+      // Obtener SKUs seleccionados
+      const checkboxes = fieldsEl.querySelectorAll(
+        'input[type="checkbox"]:checked',
+      );
+      const skusSeleccionados = Array.from(checkboxes).map((cb) => cb.value);
+
+      // Obtener producto temporal si se agregó
+      const tempSku = document.getElementById("temp_sku")?.value.trim();
+      const tempNombre = document.getElementById("temp_nombre")?.value.trim();
+
+      if (tempSku && tempNombre) {
+        // Agregar producto temporal a la lista
+        const tempProducto = {
+          sku: tempSku,
+          nombre: tempNombre,
+          categoria: "Temporal",
+          imagenUrl: "",
+        };
+        // Verificar que no exista
+        if (!productosData.some((p) => p.sku === tempSku)) {
+          productosTemporales = productosData.filter((p) =>
+            skusSeleccionados.includes(p.sku),
+          );
+          productosTemporales.push(tempProducto);
+        } else {
+          toast("El SKU temporal ya existe en el inventario", "error");
+          // No cerramos, permitimos corregir
+          return;
+        }
+      } else {
+        productosTemporales = productosData.filter((p) =>
+          skusSeleccionados.includes(p.sku),
+        );
+      }
+
+      if (productosTemporales.length === 0) {
+        toast("Debes seleccionar al menos un producto", "error");
+        return;
+      }
+
+      // Inicializar stock temporal vacío
+      stockTemporal = {};
+      modoTemporal = true;
+      cleanup();
+      resolve(true);
+      // Recargar vista
+      renderizarProductos();
+      construirIndiceCategorias();
+      actualizarUImodoTemporal();
+      toast(
+        `Modo temporal activo con ${productosTemporales.length} productos`,
+        "success",
+      );
+    }
+    function onBackdrop(e) {
+      if (e.target === modal) onCancel();
+    }
+
+    cancelBtn.addEventListener("click", onCancel);
+    confirmBtn.addEventListener("click", onConfirm);
+    modal.addEventListener("click", onBackdrop);
+  });
+}
+
+function salirModoTemporal() {
+  if (!modoTemporal) return;
+  modoTemporal = false;
+  productosTemporales = [];
+  stockTemporal = {};
+  productosOriginales = [];
+  // Recargar página para volver al estado original
+  location.reload();
+}
+
+function actualizarUImodoTemporal() {
+  // Cambiar color del header para indicar modo temporal
+  const header = document.querySelector("header");
+  if (header) {
+    if (modoTemporal) {
+      header.style.borderColor = "var(--warning)";
+      header.style.boxShadow = "0 0 0 2px var(--warning)";
+      // Agregar botón de salir si no existe
+      let salirBtn = document.getElementById("salirTemporalBtn");
+      if (!salirBtn) {
+        salirBtn = document.createElement("button");
+        salirBtn.id = "salirTemporalBtn";
+        salirBtn.className = "btn btn-small";
+        salirBtn.style.marginLeft = "8px";
+        salirBtn.textContent = "Salir del modo temporal";
+        salirBtn.addEventListener("click", salirModoTemporal);
+        const actionsDiv = document.querySelector(".actions");
+        if (actionsDiv) actionsDiv.prepend(salirBtn);
+      } else {
+        salirBtn.style.display = "";
+      }
+    } else {
+      header.style.borderColor = "";
+      header.style.boxShadow = "";
+      const salirBtn = document.getElementById("salirTemporalBtn");
+      if (salirBtn) salirBtn.style.display = "none";
+    }
+  }
+}
+
+// ================================================================
 //  TELEGRAM
 // ================================================================
 async function sendFileToTelegram(blob, filename, caption = "") {
@@ -722,16 +989,17 @@ async function sendFileToTelegram(blob, filename, caption = "") {
 }
 
 // ================================================================
-//  EXPORTAR PDF
+//  EXPORTAR PDF (usa productos y stock actuales)
 // ================================================================
 async function generarPDF(skuNombreCantidad = true) {
   const { jsPDF } = window.jspdf;
-  const conStock = productosData
-    .filter((p) => stockStorage[p.sku] > 0)
+  const productos = obtenerProductosActuales();
+  const conStock = productos
+    .filter((p) => obtenerStockActual(p.sku) > 0)
     .map((p) => ({
       sku: p.sku,
       nombre: p.nombre,
-      cantidad: stockStorage[p.sku],
+      cantidad: obtenerStockActual(p.sku),
     }));
   if (!conStock.length) {
     toast("No hay productos con stock > 0", "warning");
@@ -742,6 +1010,12 @@ async function generarPDF(skuNombreCantidad = true) {
   doc.text("Reporte de Inventario - Dumashe", 14, 15);
   doc.setFontSize(10);
   doc.text(`Fecha: ${new Date().toLocaleDateString()}`, 14, 25);
+  if (modoTemporal) {
+    doc.setFontSize(10);
+    doc.setTextColor(255, 165, 0);
+    doc.text("*** MODO TEMPORAL ***", 14, 32);
+    doc.setTextColor(0);
+  }
   const head = skuNombreCantidad
     ? [["SKU", "Nombre", "Cantidad"]]
     : [["SKU", "Cantidad"]];
@@ -749,7 +1023,7 @@ async function generarPDF(skuNombreCantidad = true) {
     ? conStock.map((p) => [p.sku, p.nombre, p.cantidad])
     : conStock.map((p) => [p.sku, p.cantidad]);
   doc.autoTable({
-    startY: 35,
+    startY: skuNombreCantidad ? 35 : 32,
     head,
     body,
     theme: "striped",
@@ -769,7 +1043,7 @@ async function exportarPDF(onlyTelegram = false, modoCompleto = true) {
   await sendFileToTelegram(
     blob,
     fn,
-    `Inventario Dumashe - ${new Date().toLocaleDateString()}`,
+    `Inventario Dumashe - ${new Date().toLocaleDateString()}${modoTemporal ? " (TEMPORAL)" : ""}`,
   );
 }
 
@@ -784,17 +1058,19 @@ async function enviarPDFaTelegram(completo = true) {
 }
 
 // ================================================================
-//  EXPORTAR MARKDOWN
+//  EXPORTAR MARKDOWN (usa productos y stock actuales)
 // ================================================================
 function exportarMarkdown() {
+  const productos = obtenerProductosActuales();
   let md = `# Inventario Dumashe - ${new Date().toLocaleDateString()}\n\n`;
-  const cats = [...new Set(productosData.map((p) => p.categoria))];
+  if (modoTemporal) md += "**MODO TEMPORAL**\n\n";
+  const cats = [...new Set(productos.map((p) => p.categoria))];
   for (let cat of cats) {
     md += `## ${cat}\n\n| Foto | Stock | Item | SKU |\n|------|-------|------|-----|\n`;
-    productosData
+    productos
       .filter((p) => p.categoria === cat)
       .forEach((p) => {
-        const stock = stockStorage[p.sku] || "";
+        const stock = obtenerStockActual(p.sku) || "";
         const imgTag = p.imagenUrl
           ? `<img src="${p.imagenUrl}" width="200">`
           : "";
@@ -820,13 +1096,15 @@ function descargarMarkdown() {
 }
 
 // ================================================================
-//  EXPORTAR productos.js (solo admin)
+//  EXPORTAR productos.js (solo admin, y en modo temporal exporta los temporales)
 // ================================================================
 function generarContenidoProductosJS() {
+  const productos = obtenerProductosActuales();
   let s = "// Archivo generado automáticamente desde la app de inventario\n";
+  if (modoTemporal) s += "// MODO TEMPORAL\n";
   s += "// Contiene todos los productos actuales\n\n";
   s += "const productos = [\n";
-  for (let p of productosData) {
+  for (let p of productos) {
     s += `  { sku: "${esc(p.sku)}", nombre: "${esc(p.nombre)}", categoria: "${esc(p.categoria)}", imagenUrl: "${esc(p.imagenUrl)}" },\n`;
   }
   s += "];\n\nwindow.productos = productos;\n";
@@ -838,7 +1116,7 @@ function esc(str) {
 }
 
 function exportarProductosJS(onlyTelegram = false) {
-  if (currentUserRole !== "admin") {
+  if (currentUserRole !== "admin" && !modoTemporal) {
     toast("No tienes permiso para exportar productos.js", "error");
     return;
   }
@@ -853,7 +1131,7 @@ function exportarProductosJS(onlyTelegram = false) {
   sendFileToTelegram(blob, fn, "Exportación de productos.js");
 }
 function copiarProductosJS() {
-  if (currentUserRole !== "admin") {
+  if (currentUserRole !== "admin" && !modoTemporal) {
     toast("No tienes permiso para copiar productos.js", "error");
     return;
   }
@@ -867,6 +1145,10 @@ function copiarProductosJS() {
 //  RESET STOCKS (solo admin)
 // ================================================================
 async function resetearStocks() {
+  if (modoTemporal) {
+    toast("En modo temporal no se pueden resetear stocks", "error");
+    return;
+  }
   if (currentUserRole !== "admin") {
     toast("No tienes permiso para resetear los stocks", "error");
     return;
@@ -890,7 +1172,6 @@ async function resetearStocks() {
 // ================================================================
 function ajustarUIporRol() {
   const isAdmin = currentUserRole === "admin";
-  // Ocultar botones de exportar/copiar productos.js y resetear stocks para invitados
   if (exportarProductosBtn)
     exportarProductosBtn.style.display = isAdmin ? "" : "none";
   if (copiarProductosBtn)
@@ -912,6 +1193,7 @@ async function initApp() {
     construirIndiceCategorias();
     renderizarProductos();
     ajustarUIporRol();
+    actualizarUImodoTemporal();
     toast("Datos cargados desde GitHub (vía Worker)", "success");
   } catch (error) {
     toast(
@@ -926,6 +1208,7 @@ async function initApp() {
       construirIndiceCategorias();
       renderizarProductos();
       ajustarUIporRol();
+      actualizarUImodoTemporal();
     } else {
       productosContainer.innerHTML =
         '<div class="empty">Error crítico: no se pudieron cargar los productos.</div>';
@@ -937,6 +1220,8 @@ async function initApp() {
 //  EVENTOS GLOBALES
 // ================================================================
 nuevoInventarioBtn.addEventListener("click", resetearStocks);
+if (btnModoTemporal)
+  btnModoTemporal.addEventListener("click", iniciarModoTemporal);
 exportarPdfBtn.addEventListener("click", () => exportarPDF(false, true));
 copiarMarkdownBtn.addEventListener("click", copiarMarkdown);
 descargarMarkdownBtn.addEventListener("click", descargarMarkdown);
