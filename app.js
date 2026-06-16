@@ -6,7 +6,7 @@
 let productosData = [];
 let stockStorage = {};
 let categoriasSet = new Set();
-const PASSWORD = "133011";
+const PASSWORD = "1330";
 
 // ── Telegram config ───────────────────────────────────────────────
 const TELEGRAM_BOT_TOKEN = "8734858031:AAHFZreCoRJtCAgPPWeoawoPzuxiMZXyjQU";
