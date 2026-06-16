@@ -62,28 +62,19 @@
                         <div
                             style="display: flex; gap: 6px; align-items: center"
                         >
-                            <!-- Botón Conectar (solo visible cuando no hay sesión) -->
-                            <button
-                                id="btnConectar"
-                                class="btn-small"
-                                style="display: none"
-                            >
-                                <i data-lucide="log-in"></i> Conectar
-                            </button>
-                            <!-- Botón Cerrar sesión (visible cuando hay sesión) -->
-                            <button
-                                id="btnCerrarSesion"
-                                class="btn-small"
-                                style="display: none"
-                            >
-                                <i data-lucide="log-out"></i> Salir
-                            </button>
                             <button
                                 id="btnModoTemporal"
                                 class="btn-icon-only"
                                 title="Conteo Temporal"
                             >
                                 <i data-lucide="clipboard-list"></i>
+                            </button>
+                            <button
+                                id="btnLogout"
+                                class="btn-icon-only"
+                                title="Cerrar sesión"
+                            >
+                                <i data-lucide="log-out"></i>
                             </button>
                             <button
                                 id="nuevoInventarioBtn"
@@ -148,12 +139,25 @@
                     </div>
                 </header>
 
-                <!-- ÍNDICE DE CATEGORÍAS -->
-                <div class="filter-categories">
+                <!-- ÍNDICE DE CATEGORÍAS (se oculta en modo temporal) -->
+                <div id="categoriasSection" class="filter-categories">
                     <div class="filter-header">
                         <span class="filter-label">Categorías</span>
                     </div>
                     <div id="categoriasChecklist" class="checklist"></div>
+                </div>
+
+                <!-- Botón agregar producto temporal (solo visible en modo temporal) -->
+                <div
+                    id="temporalActions"
+                    style="display: none; margin-bottom: 12px"
+                >
+                    <button
+                        id="agregarProductoTemporalBtn"
+                        class="btn btn-outline btn-full"
+                    >
+                        <i data-lucide="plus"></i> Agregar producto temporal
+                    </button>
                 </div>
 
                 <div id="productosContainer"></div>

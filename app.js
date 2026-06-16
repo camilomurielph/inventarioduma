@@ -1,5 +1,5 @@
 // ================================================================
-//  INVENTARIO DUMASHE — app.js (con roles, modo temporal vacío y login/logout)
+//  INVENTARIO DUMASHE — app.js (con roles y modo temporal mejorado)
 // ================================================================
 
 // ── Globals ──────────────────────────────────────────────────────
@@ -14,7 +14,8 @@ let currentUserRole = "guest";
 let modoTemporal = false;
 let productosTemporales = [];
 let stockTemporal = {};
-let productosOriginales = [];
+const STORAGE_TEMP_PROD = "inventarioTemporalProductos";
+const STORAGE_TEMP_STOCK = "inventarioTemporalStocks";
 
 // ── Telegram config ───────────────────────────────────────────────
 const TELEGRAM_BOT_TOKEN = "8734858031:AAHFZreCoRJtCAgPPWeoawoPzuxiMZXyjQU";
@@ -35,10 +36,14 @@ const productosContainer = document.getElementById("productosContainer");
 const hiddenContainer = document.getElementById("hiddenProductsContainer");
 const toggleHiddenBtn = document.getElementById("toggleHiddenBtn");
 const categoriasChecklist = document.getElementById("categoriasChecklist");
+const categoriasSection = document.getElementById("categoriasSection");
+const temporalActions = document.getElementById("temporalActions");
+const agregarProductoTemporalBtn = document.getElementById(
+  "agregarProductoTemporalBtn",
+);
 const nuevoInventarioBtn = document.getElementById("nuevoInventarioBtn");
 const btnModoTemporal = document.getElementById("btnModoTemporal");
-const btnConectar = document.getElementById("btnConectar");
-const btnCerrarSesion = document.getElementById("btnCerrarSesion");
+const btnLogout = document.getElementById("btnLogout");
 const exportarPdfBtn = document.getElementById("exportarPdfBtn");
 const copiarMarkdownBtn = document.getElementById("copiarMarkdownBtn");
 const descargarMarkdownBtn = document.getElementById("descargarMarkdownBtn");
@@ -58,7 +63,7 @@ const modalImgNombre = document.getElementById("modalImgNombre");
 const closeModalBtn = document.getElementById("closeModalBtn");
 
 // ================================================================
-//  CARGAR Y GUARDAR PRODUCTOS A TRAVÉS DEL WORKER
+//  CARGAR Y GUARDAR PRODUCTOS PRINCIPALES (vía Worker)
 // ================================================================
 async function cargarProductosDesdeGist() {
   try {
@@ -81,8 +86,11 @@ async function cargarProductosDesdeGist() {
 
 async function guardarProductosEnGist(productosArray) {
   if (modoTemporal) {
-    toast("En modo temporal no se guardan cambios en GitHub", "info");
-    return true; // simulamos éxito
+    toast(
+      "En modo temporal no se guardan cambios en el inventario principal",
+      "info",
+    );
+    return true;
   }
   try {
     const respuesta = await fetch(WORKER_URL, {
@@ -105,6 +113,35 @@ async function guardarProductosEnGist(productosArray) {
 }
 
 // ================================================================
+//  GESTIÓN DE PRODUCTOS TEMPORALES (localStorage)
+// ================================================================
+function cargarProductosTemporales() {
+  try {
+    const data = localStorage.getItem(STORAGE_TEMP_PROD);
+    return data ? JSON.parse(data) : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function guardarProductosTemporales() {
+  localStorage.setItem(STORAGE_TEMP_PROD, JSON.stringify(productosTemporales));
+}
+
+function cargarStocksTemporales() {
+  try {
+    const data = localStorage.getItem(STORAGE_TEMP_STOCK);
+    return data ? JSON.parse(data) : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+function guardarStocksTemporales() {
+  localStorage.setItem(STORAGE_TEMP_STOCK, JSON.stringify(stockTemporal));
+}
+
+// ================================================================
 //  OBTENER PRODUCTOS Y STOCK SEGÚN MODO
 // ================================================================
 function obtenerProductosActuales() {
@@ -123,6 +160,7 @@ function actualizarStockTemporal(sku, cantidad) {
   const num = parseInt(cantidad, 10);
   if (isNaN(num) || num <= 0) return;
   stockTemporal[sku] = (stockTemporal[sku] || 0) + num;
+  guardarStocksTemporales();
   actualizarCardStock(sku, stockTemporal[sku]);
   toast(`+${num} · total: ${stockTemporal[sku]}`, "success");
 }
@@ -132,12 +170,13 @@ function restarStockTemporal(sku, cantidad) {
   const num = parseInt(cantidad, 10);
   if (isNaN(num) || num <= 0) return;
   stockTemporal[sku] = Math.max(0, (stockTemporal[sku] || 0) - num);
+  guardarStocksTemporales();
   actualizarCardStock(sku, stockTemporal[sku]);
   toast(`−${num} · total: ${stockTemporal[sku]}`, "info");
 }
 
 // ================================================================
-//  MODAL CUSTOM (reemplaza prompt/confirm)
+//  MODAL CUSTOM
 // ================================================================
 function showCustomModal({
   title,
@@ -244,7 +283,12 @@ function checkAuth() {
   }
 }
 
-function doLogin(manual = false) {
+loginBtn.addEventListener("click", doLogin);
+passwordInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") doLogin();
+});
+
+function doLogin() {
   const enteredPassword = passwordInput.value;
   if (enteredPassword === PASSWORD_ADMIN) {
     localStorage.setItem("inventarioAuth", "true");
@@ -252,16 +296,14 @@ function doLogin(manual = false) {
     currentUserRole = "admin";
     loginModal.style.display = "none";
     appDiv.style.display = "block";
-    if (!manual) initApp();
-    else reiniciarApp();
+    initApp();
   } else if (enteredPassword === PASSWORD_GUEST) {
     localStorage.setItem("inventarioAuth", "true");
     localStorage.setItem("userRole", "guest");
     currentUserRole = "guest";
     loginModal.style.display = "none";
     appDiv.style.display = "block";
-    if (!manual) initApp();
-    else reiniciarApp();
+    initApp();
   } else {
     loginError.textContent = "Contraseña incorrecta";
     passwordInput.value = "";
@@ -273,25 +315,16 @@ function doLogin(manual = false) {
 function cerrarSesion() {
   localStorage.removeItem("inventarioAuth");
   localStorage.removeItem("userRole");
-  currentUserRole = "guest";
-  loginModal.style.display = "flex";
-  appDiv.style.display = "none";
-  // Limpiar cualquier estado temporal
-  modoTemporal = false;
-  productosTemporales = [];
-  stockTemporal = {};
-  productosOriginales = [];
-}
-
-function reiniciarApp() {
-  // Recargar productos y reinicializar
-  initApp();
-  // Actualizar visibilidad de botones
-  actualizarBotonesSesion();
+  // Si estamos en modo temporal, limpiar datos temporales (opcional)
+  if (modoTemporal) {
+    localStorage.removeItem(STORAGE_TEMP_PROD);
+    localStorage.removeItem(STORAGE_TEMP_STOCK);
+  }
+  location.reload();
 }
 
 // ================================================================
-//  STOCK STORAGE (localStorage)
+//  STOCK PRINCIPAL (localStorage)
 // ================================================================
 function cargarStocks() {
   try {
@@ -347,14 +380,12 @@ function actualizarCardStock(sku, total) {
 }
 
 // ================================================================
-//  CRUD PRODUCTOS (con persistencia y verificación de rol)
+//  CRUD PRODUCTOS PRINCIPALES (solo admin, no en modo temporal)
 // ================================================================
 async function agregarProductoNuevo(categoria) {
   if (modoTemporal) {
-    toast(
-      "En modo temporal no se pueden agregar productos al inventario principal",
-      "error",
-    );
+    // En modo temporal, llamamos a agregarProductoTemporal
+    await agregarProductoTemporal();
     return;
   }
   if (currentUserRole !== "admin") {
@@ -382,30 +413,22 @@ async function agregarProductoNuevo(categoria) {
     confirmText: "Agregar",
   });
   if (!result) return;
-
   const { sku, nombre, imagen } = result;
   if (productosData.some((p) => p.sku === sku)) {
     toast("Ya existe un producto con ese SKU", "error");
     return;
   }
-
   const ultimoIdxCategoria = productosData.reduce(
     (last, p, i) => (p.categoria === categoria ? i : last),
     -1,
   );
-
   const nuevoProducto = { sku, nombre, categoria, imagenUrl: imagen || "" };
-
   if (ultimoIdxCategoria >= 0) {
     productosData.splice(ultimoIdxCategoria + 1, 0, nuevoProducto);
   } else {
     productosData.push(nuevoProducto);
   }
-
-  if (!categoriasSet.has(categoria)) {
-    categoriasSet.add(categoria);
-  }
-
+  if (!categoriasSet.has(categoria)) categoriasSet.add(categoria);
   try {
     await guardarProductosEnGist(productosData);
     renderizarProductos();
@@ -417,7 +440,6 @@ async function agregarProductoNuevo(categoria) {
       "error",
     );
   }
-
   setTimeout(() => {
     const card = document.querySelector(
       `.producto-card[data-sku="${CSS.escape(sku)}"]`,
@@ -428,7 +450,7 @@ async function agregarProductoNuevo(categoria) {
 
 async function editarProducto(sku, nombreActual, imagenActual) {
   if (modoTemporal) {
-    toast("En modo temporal no se pueden editar productos", "error");
+    await editarProductoTemporal(sku, nombreActual, imagenActual);
     return;
   }
   if (currentUserRole !== "admin") {
@@ -450,26 +472,21 @@ async function editarProducto(sku, nombreActual, imagenActual) {
     confirmText: "Guardar",
   });
   if (!result) return;
-
   const { nombre: nuevoNombre, sku: nuevoSku, imagen: nuevaImagen } = result;
   const index = productosData.findIndex((p) => p.sku === sku);
   if (index === -1) return;
-
   if (nuevoSku !== sku && productosData.some((p) => p.sku === nuevoSku)) {
     toast("Ya existe un producto con ese SKU", "error");
     return;
   }
-
   productosData[index].nombre = nuevoNombre;
   productosData[index].sku = nuevoSku;
   productosData[index].imagenUrl = nuevaImagen;
-
   if (nuevoSku !== sku && stockStorage[sku] !== undefined) {
     stockStorage[nuevoSku] = stockStorage[sku];
     delete stockStorage[sku];
     guardarStocks();
   }
-
   try {
     await guardarProductosEnGist(productosData);
     renderizarProductos();
@@ -484,7 +501,7 @@ async function editarProducto(sku, nombreActual, imagenActual) {
 
 async function eliminarProducto(sku, nombre) {
   if (modoTemporal) {
-    toast("En modo temporal no se pueden eliminar productos", "error");
+    await eliminarProductoTemporal(sku);
     return;
   }
   if (currentUserRole !== "admin") {
@@ -499,13 +516,11 @@ async function eliminarProducto(sku, nombre) {
     danger: true,
   });
   if (!result) return;
-
   const index = productosData.findIndex((p) => p.sku === sku);
   if (index !== -1) {
     productosData.splice(index, 1);
     delete stockStorage[sku];
     guardarStocks();
-
     try {
       await guardarProductosEnGist(productosData);
       renderizarProductos();
@@ -521,15 +536,108 @@ async function eliminarProducto(sku, nombre) {
 }
 
 // ================================================================
-//  ÍNDICE DE CATEGORÍAS (navegación por scroll, sin filtrado)
+//  CRUD PRODUCTOS TEMPORALES
+// ================================================================
+async function agregarProductoTemporal() {
+  const result = await showCustomModal({
+    title: "Agregar producto temporal",
+    subtitle: "Este producto solo existirá en el conteo temporal",
+    fields: [
+      { id: "sku", label: "SKU", placeholder: "TEMP001", required: true },
+      {
+        id: "nombre",
+        label: "Nombre",
+        placeholder: "Nombre del producto",
+        required: true,
+      },
+      {
+        id: "imagen",
+        label: "URL Imagen (opcional)",
+        placeholder: "https://...",
+        required: false,
+      },
+    ],
+    confirmText: "Agregar",
+  });
+  if (!result) return;
+  const { sku, nombre, imagen } = result;
+  if (productosTemporales.some((p) => p.sku === sku)) {
+    toast("Ya existe un producto temporal con ese SKU", "error");
+    return;
+  }
+  const nuevoProducto = { sku, nombre, imagenUrl: imagen || "" };
+  productosTemporales.push(nuevoProducto);
+  guardarProductosTemporales();
+  renderizarProductos();
+  toast(`"${nombre}" agregado al conteo temporal`, "success");
+}
+
+async function editarProductoTemporal(sku, nombreActual, imagenActual) {
+  const result = await showCustomModal({
+    title: "Editar producto temporal",
+    fields: [
+      { id: "nombre", label: "Nombre", value: nombreActual, required: true },
+      { id: "sku", label: "SKU", value: sku, required: true },
+      {
+        id: "imagen",
+        label: "URL Imagen",
+        value: imagenActual,
+        required: false,
+      },
+    ],
+    confirmText: "Guardar",
+  });
+  if (!result) return;
+  const { nombre: nuevoNombre, sku: nuevoSku, imagen: nuevaImagen } = result;
+  const index = productosTemporales.findIndex((p) => p.sku === sku);
+  if (index === -1) return;
+  if (nuevoSku !== sku && productosTemporales.some((p) => p.sku === nuevoSku)) {
+    toast("Ya existe un producto temporal con ese SKU", "error");
+    return;
+  }
+  productosTemporales[index].nombre = nuevoNombre;
+  productosTemporales[index].sku = nuevoSku;
+  productosTemporales[index].imagenUrl = nuevaImagen;
+  if (nuevoSku !== sku && stockTemporal[sku] !== undefined) {
+    stockTemporal[nuevoSku] = stockTemporal[sku];
+    delete stockTemporal[sku];
+    guardarStocksTemporales();
+  }
+  guardarProductosTemporales();
+  renderizarProductos();
+  toast(`"${nuevoSku}" actualizado en conteo temporal`, "success");
+}
+
+async function eliminarProductoTemporal(sku) {
+  const result = await showCustomModal({
+    title: "Eliminar producto temporal",
+    subtitle: `¿Eliminar "${sku}" del conteo temporal?`,
+    fields: [],
+    confirmText: "Eliminar",
+    danger: true,
+  });
+  if (!result) return;
+  const index = productosTemporales.findIndex((p) => p.sku === sku);
+  if (index !== -1) {
+    productosTemporales.splice(index, 1);
+    delete stockTemporal[sku];
+    guardarProductosTemporales();
+    guardarStocksTemporales();
+    renderizarProductos();
+    toast(`"${sku}" eliminado del conteo temporal`, "warning");
+  }
+}
+
+// ================================================================
+//  CATEGORÍAS (solo para modo normal)
 // ================================================================
 function construirIndiceCategorias() {
-  const productos = obtenerProductosActuales();
-  const cats = new Set();
-  productos.forEach((p) => cats.add(p.categoria));
-  const categorias = Array.from(cats).sort();
-  const counts = contarProductosPorCategoria(productos);
-
+  if (modoTemporal) {
+    categoriasChecklist.innerHTML = "";
+    return;
+  }
+  const categorias = Array.from(categoriasSet).sort();
+  const counts = contarProductosPorCategoria(productosData);
   let html = "";
   for (let cat of categorias) {
     const n = counts[cat] || 0;
@@ -553,9 +661,9 @@ function scrollToCategoria(anchorId) {
 }
 
 function actualizarConteosCategorias() {
-  const productos = obtenerProductosActuales();
-  const counts = contarProductosPorCategoria(productos);
-  for (let cat of Object.keys(counts)) {
+  if (modoTemporal) return;
+  const counts = contarProductosPorCategoria(productosData);
+  for (let cat of categoriasSet) {
     const anchorId = categoriaAnchorId(cat);
     const el = document.getElementById(`count_${anchorId}`);
     if (el) el.textContent = counts[cat] || 0;
@@ -593,12 +701,26 @@ function buildProductCard(prod, extraStyle = "", role = "guest") {
         <i data-lucide="trash-2"></i>
       </button>
       <button class="btn-add-prod"
-              data-categoria="${escapeAttr(prod.categoria)}" title="Agregar producto en esta categoría">
+              data-categoria="${escapeAttr(prod.categoria || "")}" title="Agregar producto">
         <i data-lucide="plus"></i>
       </button>
     </div>
   `
-    : "";
+    : `
+    <div class="product-actions">
+      <button class="btn-edit"
+              data-sku="${escapeAttr(prod.sku)}"
+              data-nombre="${escapeAttr(prod.nombre)}"
+              data-imagen="${escapeAttr(prod.imagenUrl)}" title="Editar">
+        <i data-lucide="pencil"></i>
+      </button>
+      <button class="btn-delete"
+              data-sku="${escapeAttr(prod.sku)}"
+              data-nombre="${escapeAttr(prod.nombre)}" title="Eliminar">
+        <i data-lucide="trash-2"></i>
+      </button>
+    </div>
+  `;
 
   return `
     <div class="producto-card" data-sku="${escapeAttr(prod.sku)}" ${extraStyle ? `style="${extraStyle}"` : ""}>
@@ -632,33 +754,53 @@ function renderizarProductos() {
   const role = currentUserRole || "guest";
   const productos = obtenerProductosActuales();
 
-  const grupos = {};
-  const ordenCats = [];
-  for (let p of productos) {
-    if (!grupos[p.categoria]) {
-      grupos[p.categoria] = [];
-      ordenCats.push(p.categoria);
-    }
-    grupos[p.categoria].push(p);
+  // Ocultar/mostrar sección de categorías y botón de agregar temporal
+  if (modoTemporal) {
+    categoriasSection.style.display = "none";
+    temporalActions.style.display = "block";
+  } else {
+    categoriasSection.style.display = "block";
+    temporalActions.style.display = "none";
   }
 
   let html = "";
-  for (let cat of ordenCats) {
-    const anchorId = categoriaAnchorId(cat);
-    const prods = grupos[cat];
-    html += `
-      <div class="categoria-titulo" id="${anchorId}">
-        <span>${escapeHtml(cat)}</span>
-        <span class="categoria-count" id="count_${anchorId}">${prods.length}</span>
-      </div>
-      <div class="sortable-list" data-categoria="${escapeAttr(cat)}">
-        ${prods.map((p) => buildProductCard(p, "", role)).join("")}
-      </div>`;
+  if (modoTemporal) {
+    // Sin categorías, lista plana
+    if (productos.length === 0) {
+      html =
+        '<div class="empty">No hay productos en el conteo temporal. Haz clic en "Agregar producto temporal" para comenzar.</div>';
+    } else {
+      html = productos.map((p) => buildProductCard(p, "", role)).join("");
+    }
+  } else {
+    // Modo normal: agrupar por categoría
+    const grupos = {};
+    const ordenCats = [];
+    for (let p of productos) {
+      if (!grupos[p.categoria]) {
+        grupos[p.categoria] = [];
+        ordenCats.push(p.categoria);
+      }
+      grupos[p.categoria].push(p);
+    }
+    for (let cat of ordenCats) {
+      const anchorId = categoriaAnchorId(cat);
+      const prods = grupos[cat];
+      html += `
+        <div class="categoria-titulo" id="${anchorId}">
+          <span>${escapeHtml(cat)}</span>
+          <span class="categoria-count" id="count_${anchorId}">${prods.length}</span>
+        </div>
+        <div class="sortable-list" data-categoria="${escapeAttr(cat)}">
+          ${prods.map((p) => buildProductCard(p, "", role)).join("")}
+        </div>`;
+    }
   }
 
   productosContainer.innerHTML =
     html || '<div class="empty">Sin productos.</div>';
 
+  // Solo permitir arrastrar en modo normal
   if (!modoTemporal) {
     productosContainer.querySelectorAll(".sortable-list").forEach((list) => {
       sortableInstances.push(
@@ -682,7 +824,6 @@ function renderizarProductos() {
   }
 
   hiddenContainer.innerHTML = '<div class="empty">—</div>';
-
   if (typeof lucide !== "undefined") lucide.createIcons();
   bindCardEvents();
 }
@@ -699,18 +840,14 @@ async function reordenarCategoria(categoria, skusNuevoOrden) {
   const reordenados = skusNuevoOrden
     .map((sku) => productosData.find((p) => p.sku === sku))
     .filter(Boolean);
-
   const indices = productosData.reduce(
     (acc, p, i) => (p.categoria === categoria ? [...acc, i] : acc),
     [],
   );
-
   if (reordenados.length !== indices.length) return;
-
   indices.forEach((idx, i) => {
     productosData[idx] = reordenados[i];
   });
-
   try {
     await guardarProductosEnGist(productosData);
     toast("Orden guardado en GitHub", "info");
@@ -756,13 +893,17 @@ function bindCardEvents() {
     }),
   );
 
-  document
-    .querySelectorAll(".btn-add-prod")
-    .forEach((btn) =>
-      btn.addEventListener("click", (e) =>
-        agregarProductoNuevo(e.currentTarget.dataset.categoria),
-      ),
-    );
+  document.querySelectorAll(".btn-add-prod").forEach((btn) =>
+    btn.addEventListener("click", (e) => {
+      // Si modo temporal, el botón ya tiene el listener correcto en el DOM
+      // pero por si acaso, llamamos a la función correspondiente
+      if (modoTemporal) {
+        agregarProductoTemporal();
+      } else {
+        agregarProductoNuevo(e.currentTarget.dataset.categoria);
+      }
+    }),
+  );
 
   document
     .querySelectorAll(".btn-edit")
@@ -789,106 +930,54 @@ function bindCardEvents() {
 }
 
 // ================================================================
-//  MODO TEMPORAL (inventario vacío con agregado manual)
+//  MODO TEMPORAL
 // ================================================================
-async function iniciarModoTemporal() {
+function iniciarModoTemporal() {
   if (modoTemporal) {
     toast("Ya estás en modo temporal", "info");
     return;
   }
-
-  // Guardar copia de los productos originales (por si acaso)
-  productosOriginales = JSON.parse(JSON.stringify(productosData));
-
-  // Inicializar array y stock vacíos
-  productosTemporales = [];
-  stockTemporal = {};
+  // Cargar datos temporales guardados o empezar vacío
+  productosTemporales = cargarProductosTemporales();
+  stockTemporal = cargarStocksTemporales();
   modoTemporal = true;
-
-  // Renderizar la vista vacía
+  // Ocultar categorías y mostrar acciones temporales
   renderizarProductos();
   construirIndiceCategorias();
   actualizarUImodoTemporal();
   toast(
-    "Modo temporal iniciado (inventario vacío). Agrega productos manualmente.",
+    `Modo temporal activo (${productosTemporales.length} productos)`,
     "success",
   );
-
-  // Abrir modal para agregar el primer producto (opcional)
-  await agregarProductoTemporal();
-}
-
-async function agregarProductoTemporal() {
-  if (!modoTemporal) return;
-
-  const result = await showCustomModal({
-    title: "Agregar producto temporal",
-    subtitle:
-      "Añade un producto a tu inventario temporal (se mantiene solo en esta sesión)",
-    fields: [
-      { id: "sku", label: "SKU", placeholder: "TEMP001", required: true },
-      {
-        id: "nombre",
-        label: "Nombre",
-        placeholder: "Nombre del producto",
-        required: true,
-      },
-      {
-        id: "categoria",
-        label: "Categoría",
-        placeholder: "Ej: Accesorios",
-        required: true,
-      },
-      {
-        id: "imagen",
-        label: "URL Imagen (opcional)",
-        placeholder: "https://...",
-        required: false,
-      },
-    ],
-    confirmText: "Agregar",
-  });
-
-  if (!result) return;
-
-  const { sku, nombre, categoria, imagen } = result;
-
-  // Verificar duplicado en el temporal
-  if (productosTemporales.some((p) => p.sku === sku)) {
-    toast("Ya existe un producto temporal con ese SKU", "error");
-    await agregarProductoTemporal(); // volver a preguntar
-    return;
-  }
-
-  const nuevoProducto = { sku, nombre, categoria, imagenUrl: imagen || "" };
-  productosTemporales.push(nuevoProducto);
-
-  // Renderizar de nuevo para mostrar el producto
-  renderizarProductos();
-  construirIndiceCategorias();
-  toast(`"${nombre}" agregado al inventario temporal`, "success");
-
-  // Preguntar si quiere agregar otro
-  const continuar = await showCustomModal({
-    title: "¿Agregar otro producto?",
-    subtitle: "¿Quieres añadir otro producto al inventario temporal?",
-    fields: [],
-    confirmText: "Sí, agregar otro",
-    danger: false,
-  });
-  if (continuar) {
-    await agregarProductoTemporal();
-  }
 }
 
 function salirModoTemporal() {
   if (!modoTemporal) return;
-  modoTemporal = false;
-  productosTemporales = [];
-  stockTemporal = {};
-  productosOriginales = [];
-  // Recargar página para volver al estado original
-  location.reload();
+  // Opcional: preguntar si se desea guardar o descartar
+  const confirmar = confirm(
+    "¿Salir del modo temporal? Los datos se mantendrán guardados localmente para la próxima vez.",
+  );
+  if (confirmar) {
+    modoTemporal = false;
+    // No borramos los datos temporales, así que al volver a entrar se recuperarán.
+    // Si se quiere empezar de cero, se puede borrar manualmente o añadir un botón de "Limpiar temporal".
+    renderizarProductos();
+    construirIndiceCategorias();
+    actualizarUImodoTemporal();
+    toast("Has salido del modo temporal", "info");
+  }
+}
+
+function limpiarTemporal() {
+  if (!modoTemporal) return;
+  if (confirm("¿Eliminar todos los productos y stocks temporales?")) {
+    productosTemporales = [];
+    stockTemporal = {};
+    guardarProductosTemporales();
+    guardarStocksTemporales();
+    renderizarProductos();
+    toast("Conteo temporal limpiado", "info");
+  }
 }
 
 function actualizarUImodoTemporal() {
@@ -897,7 +986,7 @@ function actualizarUImodoTemporal() {
     if (modoTemporal) {
       header.style.borderColor = "var(--warning)";
       header.style.boxShadow = "0 0 0 2px var(--warning)";
-      // Agregar botón de salir si no existe
+      // Mostrar botón de salir si no existe
       let salirBtn = document.getElementById("salirTemporalBtn");
       if (!salirBtn) {
         salirBtn = document.createElement("button");
@@ -911,24 +1000,29 @@ function actualizarUImodoTemporal() {
       } else {
         salirBtn.style.display = "";
       }
+      // También agregar botón de limpiar temporal (opcional)
+      let limpiarBtn = document.getElementById("limpiarTemporalBtn");
+      if (!limpiarBtn) {
+        limpiarBtn = document.createElement("button");
+        limpiarBtn.id = "limpiarTemporalBtn";
+        limpiarBtn.className = "btn btn-small";
+        limpiarBtn.style.marginLeft = "8px";
+        limpiarBtn.textContent = "Limpiar temporal";
+        limpiarBtn.addEventListener("click", limpiarTemporal);
+        const actionsDiv = document.querySelector(".actions");
+        if (actionsDiv) actionsDiv.prepend(limpiarBtn);
+      } else {
+        limpiarBtn.style.display = "";
+      }
     } else {
       header.style.borderColor = "";
       header.style.boxShadow = "";
       const salirBtn = document.getElementById("salirTemporalBtn");
       if (salirBtn) salirBtn.style.display = "none";
+      const limpiarBtn = document.getElementById("limpiarTemporalBtn");
+      if (limpiarBtn) limpiarBtn.style.display = "none";
     }
   }
-}
-
-// ================================================================
-//  BOTONES DE SESIÓN
-// ================================================================
-function actualizarBotonesSesion() {
-  const isLoggedIn = localStorage.getItem("inventarioAuth") === "true";
-  if (btnConectar)
-    btnConectar.style.display = isLoggedIn ? "none" : "inline-flex";
-  if (btnCerrarSesion)
-    btnCerrarSesion.style.display = isLoggedIn ? "inline-flex" : "none";
 }
 
 // ================================================================
@@ -1037,19 +1131,28 @@ function exportarMarkdown() {
   const productos = obtenerProductosActuales();
   let md = `# Inventario Dumashe - ${new Date().toLocaleDateString()}\n\n`;
   if (modoTemporal) md += "**MODO TEMPORAL**\n\n";
-  const cats = [...new Set(productos.map((p) => p.categoria))];
-  for (let cat of cats) {
-    md += `## ${cat}\n\n| Foto | Stock | Item | SKU |\n|------|-------|------|-----|\n`;
-    productos
-      .filter((p) => p.categoria === cat)
-      .forEach((p) => {
-        const stock = obtenerStockActual(p.sku) || "";
-        const imgTag = p.imagenUrl
-          ? `<img src="${p.imagenUrl}" width="200">`
-          : "";
-        md += `| ${imgTag} | ${stock} | ${p.nombre} | ${p.sku} |\n`;
-      });
-    md += "\n";
+  if (modoTemporal) {
+    // Sin categorías, lista simple
+    md += "| Stock | Item | SKU |\n|-------|------|-----|\n";
+    productos.forEach((p) => {
+      const stock = obtenerStockActual(p.sku) || "";
+      md += `| ${stock} | ${p.nombre} | ${p.sku} |\n`;
+    });
+  } else {
+    const cats = [...new Set(productos.map((p) => p.categoria))];
+    for (let cat of cats) {
+      md += `## ${cat}\n\n| Foto | Stock | Item | SKU |\n|------|-------|------|-----|\n`;
+      productos
+        .filter((p) => p.categoria === cat)
+        .forEach((p) => {
+          const stock = obtenerStockActual(p.sku) || "";
+          const imgTag = p.imagenUrl
+            ? `<img src="${p.imagenUrl}" width="200">`
+            : "";
+          md += `| ${imgTag} | ${stock} | ${p.nombre} | ${p.sku} |\n`;
+        });
+      md += "\n";
+    }
   }
   return md;
 }
@@ -1078,7 +1181,7 @@ function generarContenidoProductosJS() {
   s += "// Contiene todos los productos actuales\n\n";
   s += "const productos = [\n";
   for (let p of productos) {
-    s += `  { sku: "${esc(p.sku)}", nombre: "${esc(p.nombre)}", categoria: "${esc(p.categoria)}", imagenUrl: "${esc(p.imagenUrl)}" },\n`;
+    s += `  { sku: "${esc(p.sku)}", nombre: "${esc(p.nombre)}", categoria: "${esc(p.categoria || "Temporal")}", imagenUrl: "${esc(p.imagenUrl)}" },\n`;
   }
   s += "];\n\nwindow.productos = productos;\n";
   return s;
@@ -1119,7 +1222,10 @@ function copiarProductosJS() {
 // ================================================================
 async function resetearStocks() {
   if (modoTemporal) {
-    toast("En modo temporal no se pueden resetear stocks", "error");
+    toast(
+      "En modo temporal no se pueden resetear los stocks principales",
+      "error",
+    );
     return;
   }
   if (currentUserRole !== "admin") {
@@ -1154,7 +1260,7 @@ function ajustarUIporRol() {
 }
 
 // ================================================================
-//  INIT (carga desde Worker)
+//  INIT
 // ================================================================
 async function initApp() {
   try {
@@ -1163,11 +1269,12 @@ async function initApp() {
     categoriasSet.clear();
     productosData.forEach((p) => categoriasSet.add(p.categoria));
     cargarStocks();
+    // Si hay datos temporales guardados, los cargamos pero no activamos modo aún
+    // Solo se activa al hacer clic en el botón
     construirIndiceCategorias();
     renderizarProductos();
     ajustarUIporRol();
     actualizarUImodoTemporal();
-    actualizarBotonesSesion();
     toast("Datos cargados desde GitHub (vía Worker)", "success");
   } catch (error) {
     toast(
@@ -1183,7 +1290,6 @@ async function initApp() {
       renderizarProductos();
       ajustarUIporRol();
       actualizarUImodoTemporal();
-      actualizarBotonesSesion();
     } else {
       productosContainer.innerHTML =
         '<div class="empty">Error crítico: no se pudieron cargar los productos.</div>';
@@ -1195,27 +1301,11 @@ async function initApp() {
 //  EVENTOS GLOBALES
 // ================================================================
 nuevoInventarioBtn.addEventListener("click", resetearStocks);
-if (btnModoTemporal)
-  btnModoTemporal.addEventListener("click", iniciarModoTemporal);
-if (btnConectar)
-  btnConectar.addEventListener("click", () => {
-    // Mostrar el modal de login
-    loginModal.style.display = "flex";
-    passwordInput.value = "";
-    loginError.textContent = "";
-  });
-if (btnCerrarSesion) btnCerrarSesion.addEventListener("click", cerrarSesion);
-
-// Evento login para cuando se ingresa desde el modal
-loginBtn.addEventListener("click", () => {
-  doLogin(true);
-});
-passwordInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") {
-    doLogin(true);
-  }
-});
-
+btnModoTemporal.addEventListener("click", iniciarModoTemporal);
+btnLogout.addEventListener("click", cerrarSesion);
+if (agregarProductoTemporalBtn) {
+  agregarProductoTemporalBtn.addEventListener("click", agregarProductoTemporal);
+}
 exportarPdfBtn.addEventListener("click", () => exportarPDF(false, true));
 copiarMarkdownBtn.addEventListener("click", copiarMarkdown);
 descargarMarkdownBtn.addEventListener("click", descargarMarkdown);
@@ -1264,7 +1354,6 @@ toggleHiddenBtn.addEventListener("click", () => {
   if (typeof lucide !== "undefined") lucide.createIcons();
 });
 
-// Iniciar la app
 checkAuth();
 
 // ================================================================
