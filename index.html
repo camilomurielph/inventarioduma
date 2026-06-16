@@ -147,17 +147,41 @@
                     <div id="categoriasChecklist" class="checklist"></div>
                 </div>
 
-                <!-- BOTÓN AGREGAR PRODUCTO TEMPORAL -->
+                <!-- BOTONES Y ÁREA DE IMPORTACIÓN TEMPORAL -->
                 <div
                     id="temporalActions"
                     style="display: none; margin-bottom: 12px"
                 >
-                    <button
-                        id="agregarProductoTemporalBtn"
-                        class="btn btn-outline btn-full"
+                    <div
+                        style="
+                            display: flex;
+                            gap: 8px;
+                            flex-wrap: wrap;
+                            margin-bottom: 8px;
+                        "
                     >
-                        <i data-lucide="plus"></i> Agregar producto temporal
-                    </button>
+                        <button
+                            id="agregarProductoTemporalBtn"
+                            class="btn btn-outline"
+                            style="flex: 1"
+                        >
+                            <i data-lucide="plus"></i> Agregar producto
+                        </button>
+                        <button
+                            id="importarProductosTemporalBtn"
+                            class="btn btn-outline"
+                            style="flex: 1"
+                        >
+                            <i data-lucide="file-json"></i> Importar múltiples
+                        </button>
+                        <button
+                            id="copiarProductosTemporalBtn"
+                            class="btn btn-outline"
+                            style="flex: 1"
+                        >
+                            <i data-lucide="copy"></i> Copiar todos
+                        </button>
+                    </div>
                 </div>
 
                 <div id="productosContainer"></div>
