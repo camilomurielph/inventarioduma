@@ -210,9 +210,10 @@ function showCustomModal({
         (f) => `
       <div class="modal-field-group">
         <label class="modal-field-label" for="cmf_${f.id}">${f.label}</label>
-        ${f.type === "textarea"
-          ? `<textarea class="modal-field-input" id="cmf_${f.id}" placeholder="${f.placeholder || ""}" rows="6" style="resize: vertical; min-height: 80px; font-family: inherit; font-size: 0.95rem; padding: 11px 14px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-primary); width: 100%; outline: none; transition: border-color var(--t), box-shadow var(--t);">${escapeAttr(f.value || "")}</textarea>`
-          : `<input class="modal-field-input" id="cmf_${f.id}" type="${f.type || "text"}" placeholder="${f.placeholder || ""}" value="${escapeAttr(f.value || "")}" autocomplete="off" />`
+        ${
+          f.type === "textarea"
+            ? `<textarea class="modal-field-input" id="cmf_${f.id}" placeholder="${f.placeholder || ""}" rows="6" style="resize: vertical; min-height: 80px; font-family: inherit; font-size: 0.95rem; padding: 11px 14px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-primary); width: 100%; outline: none; transition: border-color var(--t), box-shadow var(--t);">${escapeAttr(f.value || "")}</textarea>`
+            : `<input class="modal-field-input" id="cmf_${f.id}" type="${f.type || "text"}" placeholder="${f.placeholder || ""}" value="${escapeAttr(f.value || "")}" autocomplete="off" />`
         }
       </div>`,
       )
@@ -649,7 +650,8 @@ async function importarProductosTemporales() {
         id: "bloque",
         label: "Bloque de productos",
         type: "textarea",
-        placeholder: "Nombre: Pestañina 4 en 1\nSKU: PR0\nUrl img: https://...\n\nNombre: ...",
+        placeholder:
+          "Nombre: Pestañina 4 en 1\nSKU: PR0\nUrl img: https://...\n\nNombre: ...",
         required: true,
       },
     ],
@@ -658,15 +660,24 @@ async function importarProductosTemporales() {
   if (!result) return;
 
   const texto = result.bloque;
-  const lineas = texto.split("\n").map(l => l.trim()).filter(l => l.length > 0);
+  const lineas = texto.split("\n"); // NO filtramos líneas vacías
   let productosImportados = [];
   let productoActual = {};
 
   for (let linea of lineas) {
-    // Buscar coincidencias con más flexibilidad
-    const matchNombre = linea.match(/^nombre\s*:\s*(.*)/i);
-    const matchSku = linea.match(/^sku\s*:\s*(.*)/i);
-    const matchUrl = linea.match(/^(?:url|url img|imagen|img)\s*:\s*(.*)/i);
+    const lineaTrim = linea.trim();
+    // Si la línea está vacía o solo espacios, es un separador
+    if (lineaTrim === "") {
+      if (productoActual.nombre && productoActual.sku) {
+        productosImportados.push({ ...productoActual });
+        productoActual = {};
+      }
+      continue;
+    }
+
+    const matchNombre = lineaTrim.match(/^nombre\s*:\s*(.*)/i);
+    const matchSku = lineaTrim.match(/^sku\s*:\s*(.*)/i);
+    const matchUrl = lineaTrim.match(/^(?:url|url img|imagen|img)\s*:\s*(.*)/i);
 
     if (matchNombre) {
       productoActual.nombre = matchNombre[1].trim();
@@ -675,21 +686,24 @@ async function importarProductosTemporales() {
     } else if (matchUrl) {
       productoActual.imagenUrl = matchUrl[1].trim();
     } else {
-      // Si la línea no coincide con ningún patrón, podría ser parte de un campo multilínea?
-      // Por simplicidad, asumimos que es un separador de producto si el producto actual tiene nombre y sku
+      // Si la línea no coincide con ningún patrón y no está vacía, la ignoramos
+      // pero si ya tenemos un producto acumulado, lo guardamos y reiniciamos
       if (productoActual.nombre && productoActual.sku) {
         productosImportados.push({ ...productoActual });
         productoActual = {};
       }
     }
   }
-  // Si al final queda un producto, lo agregamos
+  // Al final, guardar cualquier producto pendiente
   if (productoActual.nombre && productoActual.sku) {
     productosImportados.push({ ...productoActual });
   }
 
   if (productosImportados.length === 0) {
-    toast("No se encontraron productos válidos en el texto. Asegúrate de usar el formato: Nombre: ... SKU: ... Url img: ...", "error");
+    toast(
+      "No se encontraron productos válidos en el texto. Asegúrate de usar el formato: Nombre: ... SKU: ... Url img: ...",
+      "error",
+    );
     return;
   }
 
@@ -713,7 +727,10 @@ async function importarProductosTemporales() {
     renderizarProductos();
     toast(`Se importaron ${agregados} productos temporales`, "success");
   } else {
-    toast("No se importó ningún producto nuevo (todos los SKU ya existían)", "info");
+    toast(
+      "No se importó ningún producto nuevo (todos los SKU ya existían)",
+      "info",
+    );
   }
 }
 
@@ -733,7 +750,12 @@ function copiarProductosTemporales() {
   }
   navigator.clipboard
     .writeText(texto)
-    .then(() => toast(`${productosTemporales.length} productos copiados al portapapeles`, "success"))
+    .then(() =>
+      toast(
+        `${productosTemporales.length} productos copiados al portapapeles`,
+        "success",
+      ),
+    )
     .catch(() => toast("Error al copiar", "error"));
 }
 
@@ -791,7 +813,8 @@ function contarProductosPorCategoria(productos) {
 let sortableInstances = [];
 
 function buildProductCard(prod, extraStyle = "", role = "guest") {
-  const total = obtenerStockActual(prod.sku) > 0 ? obtenerStockActual(prod.sku) : "";
+  const total =
+    obtenerStockActual(prod.sku) > 0 ? obtenerStockActual(prod.sku) : "";
   const placeholder = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60'%3E%3Crect width='60' height='60' fill='%23222'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' dy='.3em' fill='%23555' font-size='20'%3E%3F%3C/text%3E%3C/svg%3E`;
   const actionButtons = `
     <div class="product-actions">
@@ -855,7 +878,8 @@ function renderizarProductos() {
   let html = "";
   if (modoTemporal) {
     if (productos.length === 0) {
-      html = '<div class="empty">No hay productos en el conteo temporal. Usa los botones de arriba para agregar.</div>';
+      html =
+        '<div class="empty">No hay productos en el conteo temporal. Usa los botones de arriba para agregar.</div>';
     } else {
       html = productos.map((p) => buildProductCard(p, "", role)).join("");
     }
@@ -880,18 +904,23 @@ function renderizarProductos() {
         <div class="sortable-list" data-categoria="${escapeAttr(cat)}">
           ${prods.map((p) => buildProductCard(p, "", role)).join("")}
         </div>
-        ${role === "admin" ? `
+        ${
+          role === "admin"
+            ? `
           <div class="agregar-en-categoria">
             <button class="btn btn-outline btn-add-prod" data-categoria="${escapeAttr(cat)}">
               <i data-lucide="plus"></i> Agregar producto
             </button>
           </div>
-        ` : ''}
+        `
+            : ""
+        }
       `;
     }
   }
 
-  productosContainer.innerHTML = html || '<div class="empty">Sin productos.</div>';
+  productosContainer.innerHTML =
+    html || '<div class="empty">Sin productos.</div>';
 
   if (!modoTemporal) {
     productosContainer.querySelectorAll(".sortable-list").forEach((list) => {
@@ -910,7 +939,7 @@ function renderizarProductos() {
               ),
             );
           },
-        })
+        }),
       );
     });
   }
@@ -959,7 +988,7 @@ function bindCardEvents() {
       const cantidad = input.value.trim() || "1";
       actualizarStock(e.currentTarget.dataset.sku, cantidad);
       input.value = "";
-    })
+    }),
   );
   document.querySelectorAll(".stock-btn.restar").forEach((btn) =>
     btn.addEventListener("click", (e) => {
@@ -968,7 +997,7 @@ function bindCardEvents() {
       const cantidad = input.value.trim() || "1";
       restarStock(e.currentTarget.dataset.sku, cantidad);
       input.value = "";
-    })
+    }),
   );
 
   document.querySelectorAll(".stock-input").forEach((inp) => {
@@ -987,10 +1016,10 @@ function bindCardEvents() {
       const nombre = e.currentTarget.dataset.nombre || "";
       modalImage.src = url;
       modalImgNombre.textContent = decodeURIComponent(
-        nombre.replace(/&#39;/g, "'").replace(/&quot;/g, '"')
+        nombre.replace(/&#39;/g, "'").replace(/&quot;/g, '"'),
       );
       imageModal.style.display = "flex";
-    })
+    }),
   );
 
   document.querySelectorAll(".btn-add-prod").forEach((btn) =>
@@ -1000,26 +1029,30 @@ function bindCardEvents() {
       } else {
         agregarProductoNuevo(e.currentTarget.dataset.categoria);
       }
-    })
+    }),
   );
 
-  document.querySelectorAll(".btn-edit").forEach((btn) =>
-    btn.addEventListener("click", (e) =>
-      editarProducto(
-        e.currentTarget.dataset.sku,
-        e.currentTarget.dataset.nombre,
-        e.currentTarget.dataset.imagen
-      )
-    )
-  );
-  document.querySelectorAll(".btn-delete").forEach((btn) =>
-    btn.addEventListener("click", (e) =>
-      eliminarProducto(
-        e.currentTarget.dataset.sku,
-        e.currentTarget.dataset.nombre
-      )
-    )
-  );
+  document
+    .querySelectorAll(".btn-edit")
+    .forEach((btn) =>
+      btn.addEventListener("click", (e) =>
+        editarProducto(
+          e.currentTarget.dataset.sku,
+          e.currentTarget.dataset.nombre,
+          e.currentTarget.dataset.imagen,
+        ),
+      ),
+    );
+  document
+    .querySelectorAll(".btn-delete")
+    .forEach((btn) =>
+      btn.addEventListener("click", (e) =>
+        eliminarProducto(
+          e.currentTarget.dataset.sku,
+          e.currentTarget.dataset.nombre,
+        ),
+      ),
+    );
 }
 
 // ================================================================
@@ -1390,10 +1423,16 @@ if (agregarProductoTemporalBtn) {
   agregarProductoTemporalBtn.addEventListener("click", agregarProductoTemporal);
 }
 if (importarProductosTemporalBtn) {
-  importarProductosTemporalBtn.addEventListener("click", importarProductosTemporales);
+  importarProductosTemporalBtn.addEventListener(
+    "click",
+    importarProductosTemporales,
+  );
 }
 if (copiarProductosTemporalBtn) {
-  copiarProductosTemporalBtn.addEventListener("click", copiarProductosTemporales);
+  copiarProductosTemporalBtn.addEventListener(
+    "click",
+    copiarProductosTemporales,
+  );
 }
 exportarPdfBtn.addEventListener("click", () => exportarPDF(false, true));
 copiarMarkdownBtn.addEventListener("click", copiarMarkdown);
