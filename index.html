@@ -59,7 +59,25 @@
                             <span class="header-eyebrow">Inventario</span>
                             <h1>Dumashe</h1>
                         </div>
-                        <div style="display: flex; gap: 6px">
+                        <div
+                            style="display: flex; gap: 6px; align-items: center"
+                        >
+                            <!-- Botón Conectar (solo visible cuando no hay sesión) -->
+                            <button
+                                id="btnConectar"
+                                class="btn-small"
+                                style="display: none"
+                            >
+                                <i data-lucide="log-in"></i> Conectar
+                            </button>
+                            <!-- Botón Cerrar sesión (visible cuando hay sesión) -->
+                            <button
+                                id="btnCerrarSesion"
+                                class="btn-small"
+                                style="display: none"
+                            >
+                                <i data-lucide="log-out"></i> Salir
+                            </button>
                             <button
                                 id="btnModoTemporal"
                                 class="btn-icon-only"

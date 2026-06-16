@@ -1,5 +1,5 @@
 // ================================================================
-//  INVENTARIO DUMASHE — app.js (con roles y modo temporal)
+//  INVENTARIO DUMASHE — app.js (con roles, modo temporal vacío y login/logout)
 // ================================================================
 
 // ── Globals ──────────────────────────────────────────────────────
@@ -37,6 +37,8 @@ const toggleHiddenBtn = document.getElementById("toggleHiddenBtn");
 const categoriasChecklist = document.getElementById("categoriasChecklist");
 const nuevoInventarioBtn = document.getElementById("nuevoInventarioBtn");
 const btnModoTemporal = document.getElementById("btnModoTemporal");
+const btnConectar = document.getElementById("btnConectar");
+const btnCerrarSesion = document.getElementById("btnCerrarSesion");
 const exportarPdfBtn = document.getElementById("exportarPdfBtn");
 const copiarMarkdownBtn = document.getElementById("copiarMarkdownBtn");
 const descargarMarkdownBtn = document.getElementById("descargarMarkdownBtn");
@@ -242,12 +244,7 @@ function checkAuth() {
   }
 }
 
-loginBtn.addEventListener("click", doLogin);
-passwordInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") doLogin();
-});
-
-function doLogin() {
+function doLogin(manual = false) {
   const enteredPassword = passwordInput.value;
   if (enteredPassword === PASSWORD_ADMIN) {
     localStorage.setItem("inventarioAuth", "true");
@@ -255,20 +252,42 @@ function doLogin() {
     currentUserRole = "admin";
     loginModal.style.display = "none";
     appDiv.style.display = "block";
-    initApp();
+    if (!manual) initApp();
+    else reiniciarApp();
   } else if (enteredPassword === PASSWORD_GUEST) {
     localStorage.setItem("inventarioAuth", "true");
     localStorage.setItem("userRole", "guest");
     currentUserRole = "guest";
     loginModal.style.display = "none";
     appDiv.style.display = "block";
-    initApp();
+    if (!manual) initApp();
+    else reiniciarApp();
   } else {
     loginError.textContent = "Contraseña incorrecta";
     passwordInput.value = "";
     passwordInput.classList.add("input-error");
     setTimeout(() => passwordInput.classList.remove("input-error"), 1200);
   }
+}
+
+function cerrarSesion() {
+  localStorage.removeItem("inventarioAuth");
+  localStorage.removeItem("userRole");
+  currentUserRole = "guest";
+  loginModal.style.display = "flex";
+  appDiv.style.display = "none";
+  // Limpiar cualquier estado temporal
+  modoTemporal = false;
+  productosTemporales = [];
+  stockTemporal = {};
+  productosOriginales = [];
+}
+
+function reiniciarApp() {
+  // Recargar productos y reinicializar
+  initApp();
+  // Actualizar visibilidad de botones
+  actualizarBotonesSesion();
 }
 
 // ================================================================
@@ -282,7 +301,7 @@ function cargarStocks() {
   }
 }
 function guardarStocks() {
-  if (modoTemporal) return; // no guardar stocks temporales
+  if (modoTemporal) return;
   localStorage.setItem("inventarioStocks", JSON.stringify(stockStorage));
 }
 
@@ -770,7 +789,7 @@ function bindCardEvents() {
 }
 
 // ================================================================
-//  MODO TEMPORAL
+//  MODO TEMPORAL (inventario vacío con agregado manual)
 // ================================================================
 async function iniciarModoTemporal() {
   if (modoTemporal) {
@@ -778,144 +797,88 @@ async function iniciarModoTemporal() {
     return;
   }
 
-  // Guardar copia de los productos originales y stocks
+  // Guardar copia de los productos originales (por si acaso)
   productosOriginales = JSON.parse(JSON.stringify(productosData));
-  // Crear array de checkboxes para seleccionar productos
-  const fields = [
-    {
-      id: "instruccion",
-      type: "text",
-      label: "Selecciona los productos para el conteo temporal",
-      required: false,
-      placeholder: "Marca los que necesitas contar",
-    },
-  ];
 
-  // Añadir un checkbox por producto (usando un campo personalizado)
-  // Como no podemos poner checkboxes fácilmente en el modal genérico, vamos a generar un campo "textarea" o "select"
-  // Mejor usar un modal específico con lista de checkboxes.
-  // Voy a implementar un modal personalizado para este caso.
-  const modal = document.getElementById("customModal");
-  const titleEl = document.getElementById("customModalTitle");
-  const subtitleEl = document.getElementById("customModalSubtitle");
-  const fieldsEl = document.getElementById("customModalFields");
-  const cancelBtn = document.getElementById("customModalCancel");
-  const confirmBtn = document.getElementById("customModalConfirm");
+  // Inicializar array y stock vacíos
+  productosTemporales = [];
+  stockTemporal = {};
+  modoTemporal = true;
 
-  titleEl.textContent = "Seleccionar productos para conteo temporal";
-  subtitleEl.textContent =
-    "Elige los productos que deseas incluir en el conteo temporal (puedes añadir productos nuevos después)";
-  subtitleEl.style.display = "block";
-  confirmBtn.textContent = "Iniciar conteo";
-  confirmBtn.className = "";
+  // Renderizar la vista vacía
+  renderizarProductos();
+  construirIndiceCategorias();
+  actualizarUImodoTemporal();
+  toast(
+    "Modo temporal iniciado (inventario vacío). Agrega productos manualmente.",
+    "success",
+  );
 
-  // Generar checkboxes
-  let checkboxesHtml = productosData
-    .map(
-      (p, index) => `
-    <div class="modal-field-group" style="flex-direction: row; align-items: center; gap: 8px;">
-      <input type="checkbox" id="prod_${index}" value="${escapeAttr(p.sku)}" checked />
-      <label for="prod_${index}" style="font-size: 0.9rem;">${escapeHtml(p.nombre)} (${escapeHtml(p.sku)})</label>
-    </div>
-  `,
-    )
-    .join("");
+  // Abrir modal para agregar el primer producto (opcional)
+  await agregarProductoTemporal();
+}
 
-  // Campo para agregar producto temporal
-  checkboxesHtml += `
-    <div class="modal-field-group" style="margin-top: 12px; border-top: 1px solid var(--border); padding-top: 12px;">
-      <label style="font-size: 0.8rem; color: var(--text-muted);">Agregar producto temporal (opcional)</label>
-      <div style="display: flex; gap: 8px;">
-        <input class="modal-field-input" id="temp_sku" type="text" placeholder="SKU" style="flex: 1;" />
-        <input class="modal-field-input" id="temp_nombre" type="text" placeholder="Nombre" style="flex: 2;" />
-      </div>
-    </div>
-  `;
+async function agregarProductoTemporal() {
+  if (!modoTemporal) return;
 
-  fieldsEl.innerHTML = checkboxesHtml;
-
-  modal.style.display = "flex";
-  if (typeof lucide !== "undefined")
-    requestAnimationFrame(() => lucide.createIcons());
-
-  // Enfocar primer checkbox (opcional)
-  const firstCheck = fieldsEl.querySelector('input[type="checkbox"]');
-  if (firstCheck) setTimeout(() => firstCheck.focus(), 80);
-
-  return new Promise((resolve) => {
-    function cleanup() {
-      modal.style.display = "none";
-      cancelBtn.removeEventListener("click", onCancel);
-      confirmBtn.removeEventListener("click", onConfirm);
-      modal.removeEventListener("click", onBackdrop);
-    }
-    function onCancel() {
-      cleanup();
-      resolve(null);
-    }
-    function onConfirm() {
-      // Obtener SKUs seleccionados
-      const checkboxes = fieldsEl.querySelectorAll(
-        'input[type="checkbox"]:checked',
-      );
-      const skusSeleccionados = Array.from(checkboxes).map((cb) => cb.value);
-
-      // Obtener producto temporal si se agregó
-      const tempSku = document.getElementById("temp_sku")?.value.trim();
-      const tempNombre = document.getElementById("temp_nombre")?.value.trim();
-
-      if (tempSku && tempNombre) {
-        // Agregar producto temporal a la lista
-        const tempProducto = {
-          sku: tempSku,
-          nombre: tempNombre,
-          categoria: "Temporal",
-          imagenUrl: "",
-        };
-        // Verificar que no exista
-        if (!productosData.some((p) => p.sku === tempSku)) {
-          productosTemporales = productosData.filter((p) =>
-            skusSeleccionados.includes(p.sku),
-          );
-          productosTemporales.push(tempProducto);
-        } else {
-          toast("El SKU temporal ya existe en el inventario", "error");
-          // No cerramos, permitimos corregir
-          return;
-        }
-      } else {
-        productosTemporales = productosData.filter((p) =>
-          skusSeleccionados.includes(p.sku),
-        );
-      }
-
-      if (productosTemporales.length === 0) {
-        toast("Debes seleccionar al menos un producto", "error");
-        return;
-      }
-
-      // Inicializar stock temporal vacío
-      stockTemporal = {};
-      modoTemporal = true;
-      cleanup();
-      resolve(true);
-      // Recargar vista
-      renderizarProductos();
-      construirIndiceCategorias();
-      actualizarUImodoTemporal();
-      toast(
-        `Modo temporal activo con ${productosTemporales.length} productos`,
-        "success",
-      );
-    }
-    function onBackdrop(e) {
-      if (e.target === modal) onCancel();
-    }
-
-    cancelBtn.addEventListener("click", onCancel);
-    confirmBtn.addEventListener("click", onConfirm);
-    modal.addEventListener("click", onBackdrop);
+  const result = await showCustomModal({
+    title: "Agregar producto temporal",
+    subtitle:
+      "Añade un producto a tu inventario temporal (se mantiene solo en esta sesión)",
+    fields: [
+      { id: "sku", label: "SKU", placeholder: "TEMP001", required: true },
+      {
+        id: "nombre",
+        label: "Nombre",
+        placeholder: "Nombre del producto",
+        required: true,
+      },
+      {
+        id: "categoria",
+        label: "Categoría",
+        placeholder: "Ej: Accesorios",
+        required: true,
+      },
+      {
+        id: "imagen",
+        label: "URL Imagen (opcional)",
+        placeholder: "https://...",
+        required: false,
+      },
+    ],
+    confirmText: "Agregar",
   });
+
+  if (!result) return;
+
+  const { sku, nombre, categoria, imagen } = result;
+
+  // Verificar duplicado en el temporal
+  if (productosTemporales.some((p) => p.sku === sku)) {
+    toast("Ya existe un producto temporal con ese SKU", "error");
+    await agregarProductoTemporal(); // volver a preguntar
+    return;
+  }
+
+  const nuevoProducto = { sku, nombre, categoria, imagenUrl: imagen || "" };
+  productosTemporales.push(nuevoProducto);
+
+  // Renderizar de nuevo para mostrar el producto
+  renderizarProductos();
+  construirIndiceCategorias();
+  toast(`"${nombre}" agregado al inventario temporal`, "success");
+
+  // Preguntar si quiere agregar otro
+  const continuar = await showCustomModal({
+    title: "¿Agregar otro producto?",
+    subtitle: "¿Quieres añadir otro producto al inventario temporal?",
+    fields: [],
+    confirmText: "Sí, agregar otro",
+    danger: false,
+  });
+  if (continuar) {
+    await agregarProductoTemporal();
+  }
 }
 
 function salirModoTemporal() {
@@ -929,7 +892,6 @@ function salirModoTemporal() {
 }
 
 function actualizarUImodoTemporal() {
-  // Cambiar color del header para indicar modo temporal
   const header = document.querySelector("header");
   if (header) {
     if (modoTemporal) {
@@ -956,6 +918,17 @@ function actualizarUImodoTemporal() {
       if (salirBtn) salirBtn.style.display = "none";
     }
   }
+}
+
+// ================================================================
+//  BOTONES DE SESIÓN
+// ================================================================
+function actualizarBotonesSesion() {
+  const isLoggedIn = localStorage.getItem("inventarioAuth") === "true";
+  if (btnConectar)
+    btnConectar.style.display = isLoggedIn ? "none" : "inline-flex";
+  if (btnCerrarSesion)
+    btnCerrarSesion.style.display = isLoggedIn ? "inline-flex" : "none";
 }
 
 // ================================================================
@@ -1194,6 +1167,7 @@ async function initApp() {
     renderizarProductos();
     ajustarUIporRol();
     actualizarUImodoTemporal();
+    actualizarBotonesSesion();
     toast("Datos cargados desde GitHub (vía Worker)", "success");
   } catch (error) {
     toast(
@@ -1209,6 +1183,7 @@ async function initApp() {
       renderizarProductos();
       ajustarUIporRol();
       actualizarUImodoTemporal();
+      actualizarBotonesSesion();
     } else {
       productosContainer.innerHTML =
         '<div class="empty">Error crítico: no se pudieron cargar los productos.</div>';
@@ -1222,6 +1197,25 @@ async function initApp() {
 nuevoInventarioBtn.addEventListener("click", resetearStocks);
 if (btnModoTemporal)
   btnModoTemporal.addEventListener("click", iniciarModoTemporal);
+if (btnConectar)
+  btnConectar.addEventListener("click", () => {
+    // Mostrar el modal de login
+    loginModal.style.display = "flex";
+    passwordInput.value = "";
+    loginError.textContent = "";
+  });
+if (btnCerrarSesion) btnCerrarSesion.addEventListener("click", cerrarSesion);
+
+// Evento login para cuando se ingresa desde el modal
+loginBtn.addEventListener("click", () => {
+  doLogin(true);
+});
+passwordInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    doLogin(true);
+  }
+});
+
 exportarPdfBtn.addEventListener("click", () => exportarPDF(false, true));
 copiarMarkdownBtn.addEventListener("click", copiarMarkdown);
 descargarMarkdownBtn.addEventListener("click", descargarMarkdown);
@@ -1270,6 +1264,7 @@ toggleHiddenBtn.addEventListener("click", () => {
   if (typeof lucide !== "undefined") lucide.createIcons();
 });
 
+// Iniciar la app
 checkAuth();
 
 // ================================================================
