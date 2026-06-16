@@ -1,12 +1,14 @@
 // ================================================================
-//  INVENTARIO DUMASHE — app.js (con Cloudflare Worker)
+//  INVENTARIO DUMASHE — app.js (con roles de usuario)
 // ================================================================
 
 // ── Globals ──────────────────────────────────────────────────────
 let productosData = [];
 let stockStorage = {};
 let categoriasSet = new Set();
-const PASSWORD = "1330";
+const PASSWORD_ADMIN = "1330";
+const PASSWORD_GUEST = "invitado";
+let currentUserRole = "guest";
 
 // ── Telegram config ───────────────────────────────────────────────
 const TELEGRAM_BOT_TOKEN = "8734858031:AAHFZreCoRJtCAgPPWeoawoPzuxiMZXyjQU";
@@ -14,8 +16,8 @@ const TELEGRAM_CHAT_ID = "898495705";
 
 // ── Cloudflare Worker config ──────────────────────────────────────
 const WORKER_URL =
-  "https://inventario-dumashe-proxy.camilomurielph.workers.dev/"; // <-- CAMBIA ESTO
-const APP_SECRET = "Api1330clave"; // Debe coincidir con la variable APP_SECRET del worker
+  "https://inventario-dumashe-proxy.camilomurielph.workers.dev/";
+const APP_SECRET = "Api1330clave";
 
 // ── DOM refs ──────────────────────────────────────────────────────
 const loginModal = document.getElementById("loginModal");
@@ -57,10 +59,9 @@ async function cargarProductosDesdeGist() {
     });
     if (!respuesta.ok) throw new Error(`HTTP ${respuesta.status}`);
     const data = await respuesta.json();
-    return data; // El worker devuelve directamente el array de productos
+    return data;
   } catch (error) {
     console.error("Error cargando desde Worker:", error);
-    // Fallback: usar window.productos (el archivo local)
     if (window.productos && window.productos.length) {
       console.warn("Usando productos.js local como respaldo");
       return window.productos;
@@ -75,7 +76,7 @@ async function guardarProductosEnGist(productosArray) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Auth-Key": APP_SECRET, // Autenticación con el worker
+        "X-Auth-Key": APP_SECRET,
       },
       body: JSON.stringify({ content: productosArray }),
     });
@@ -188,6 +189,7 @@ function showCustomModal({
 // ================================================================
 function checkAuth() {
   if (localStorage.getItem("inventarioAuth") === "true") {
+    currentUserRole = localStorage.getItem("userRole") || "guest";
     loginModal.style.display = "none";
     appDiv.style.display = "block";
     initApp();
@@ -203,8 +205,18 @@ passwordInput.addEventListener("keydown", (e) => {
 });
 
 function doLogin() {
-  if (passwordInput.value === PASSWORD) {
+  const enteredPassword = passwordInput.value;
+  if (enteredPassword === PASSWORD_ADMIN) {
     localStorage.setItem("inventarioAuth", "true");
+    localStorage.setItem("userRole", "admin");
+    currentUserRole = "admin";
+    loginModal.style.display = "none";
+    appDiv.style.display = "block";
+    initApp();
+  } else if (enteredPassword === PASSWORD_GUEST) {
+    localStorage.setItem("inventarioAuth", "true");
+    localStorage.setItem("userRole", "guest");
+    currentUserRole = "guest";
     loginModal.style.display = "none";
     appDiv.style.display = "block";
     initApp();
@@ -264,9 +276,13 @@ function actualizarCardStock(sku, total) {
 }
 
 // ================================================================
-//  CRUD PRODUCTOS (con persistencia a través del Worker)
+//  CRUD PRODUCTOS (con persistencia y verificación de rol)
 // ================================================================
 async function agregarProductoNuevo(categoria) {
+  if (currentUserRole !== "admin") {
+    toast("No tienes permiso para agregar productos", "error");
+    return;
+  }
   const result = await showCustomModal({
     title: "Nuevo producto",
     subtitle: `Se añadirá al final de: ${categoria}`,
@@ -333,6 +349,10 @@ async function agregarProductoNuevo(categoria) {
 }
 
 async function editarProducto(sku, nombreActual, imagenActual) {
+  if (currentUserRole !== "admin") {
+    toast("No tienes permiso para editar productos", "error");
+    return;
+  }
   const result = await showCustomModal({
     title: "Editar producto",
     fields: [
@@ -381,6 +401,10 @@ async function editarProducto(sku, nombreActual, imagenActual) {
 }
 
 async function eliminarProducto(sku, nombre) {
+  if (currentUserRole !== "admin") {
+    toast("No tienes permiso para eliminar productos", "error");
+    return;
+  }
   const result = await showCustomModal({
     title: "Eliminar producto",
     subtitle: `¿Eliminar permanentemente "${nombre}" (${sku})?`,
@@ -460,9 +484,32 @@ function contarProductosPorCategoria() {
 // ================================================================
 let sortableInstances = [];
 
-function buildProductCard(prod, extraStyle = "") {
+function buildProductCard(prod, extraStyle = "", role = "guest") {
   const total = stockStorage[prod.sku] > 0 ? stockStorage[prod.sku] : "";
   const placeholder = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60'%3E%3Crect width='60' height='60' fill='%23222'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' dy='.3em' fill='%23555' font-size='20'%3E%3F%3C/text%3E%3C/svg%3E`;
+  const isAdmin = role === "admin";
+  const actionButtons = isAdmin
+    ? `
+    <div class="product-actions">
+      <button class="btn-edit"
+              data-sku="${escapeAttr(prod.sku)}"
+              data-nombre="${escapeAttr(prod.nombre)}"
+              data-imagen="${escapeAttr(prod.imagenUrl)}" title="Editar">
+        <i data-lucide="pencil"></i>
+      </button>
+      <button class="btn-delete"
+              data-sku="${escapeAttr(prod.sku)}"
+              data-nombre="${escapeAttr(prod.nombre)}" title="Eliminar">
+        <i data-lucide="trash-2"></i>
+      </button>
+      <button class="btn-add-prod"
+              data-categoria="${escapeAttr(prod.categoria)}" title="Agregar producto en esta categoría">
+        <i data-lucide="plus"></i>
+      </button>
+    </div>
+  `
+    : "";
+
   return `
     <div class="producto-card" data-sku="${escapeAttr(prod.sku)}" ${extraStyle ? `style="${extraStyle}"` : ""}>
       <div class="drag-handle" title="Arrastrar para reordenar">
@@ -485,29 +532,14 @@ function buildProductCard(prod, extraStyle = "") {
                data-sku="${escapeAttr(prod.sku)}" value="" placeholder="+ suma">
         <button class="stock-btn sumar" data-sku="${escapeAttr(prod.sku)}">+</button>
       </div>
-      <div class="product-actions">
-        <button class="btn-edit"
-                data-sku="${escapeAttr(prod.sku)}"
-                data-nombre="${escapeAttr(prod.nombre)}"
-                data-imagen="${escapeAttr(prod.imagenUrl)}" title="Editar">
-          <i data-lucide="pencil"></i>
-        </button>
-        <button class="btn-delete"
-                data-sku="${escapeAttr(prod.sku)}"
-                data-nombre="${escapeAttr(prod.nombre)}" title="Eliminar">
-          <i data-lucide="trash-2"></i>
-        </button>
-        <button class="btn-add-prod"
-                data-categoria="${escapeAttr(prod.categoria)}" title="Agregar producto en esta categoría">
-          <i data-lucide="plus"></i>
-        </button>
-      </div>
+      ${actionButtons}
     </div>`;
 }
 
 function renderizarProductos() {
   sortableInstances.forEach((s) => s.destroy());
   sortableInstances = [];
+  const role = currentUserRole || "guest";
 
   const grupos = {};
   const ordenCats = [];
@@ -529,7 +561,7 @@ function renderizarProductos() {
         <span class="categoria-count" id="count_${anchorId}">${prods.length}</span>
       </div>
       <div class="sortable-list" data-categoria="${escapeAttr(cat)}">
-        ${prods.map((p) => buildProductCard(p)).join("")}
+        ${prods.map((p) => buildProductCard(p, "", role)).join("")}
       </div>`;
   }
 
@@ -563,6 +595,10 @@ function renderizarProductos() {
 }
 
 async function reordenarCategoria(categoria, skusNuevoOrden) {
+  if (currentUserRole !== "admin") {
+    toast("No tienes permiso para reordenar productos", "error");
+    return;
+  }
   const reordenados = skusNuevoOrden
     .map((sku) => productosData.find((p) => p.sku === sku))
     .filter(Boolean);
@@ -784,7 +820,7 @@ function descargarMarkdown() {
 }
 
 // ================================================================
-//  EXPORTAR productos.js
+//  EXPORTAR productos.js (solo admin)
 // ================================================================
 function generarContenidoProductosJS() {
   let s = "// Archivo generado automáticamente desde la app de inventario\n";
@@ -802,6 +838,10 @@ function esc(str) {
 }
 
 function exportarProductosJS(onlyTelegram = false) {
+  if (currentUserRole !== "admin") {
+    toast("No tienes permiso para exportar productos.js", "error");
+    return;
+  }
   const blob = new Blob([generarContenidoProductosJS()], {
     type: "application/javascript",
   });
@@ -813,6 +853,10 @@ function exportarProductosJS(onlyTelegram = false) {
   sendFileToTelegram(blob, fn, "Exportación de productos.js");
 }
 function copiarProductosJS() {
+  if (currentUserRole !== "admin") {
+    toast("No tienes permiso para copiar productos.js", "error");
+    return;
+  }
   navigator.clipboard
     .writeText(generarContenidoProductosJS())
     .then(() => toast("productos.js copiado", "success"))
@@ -820,9 +864,13 @@ function copiarProductosJS() {
 }
 
 // ================================================================
-//  RESET STOCKS
+//  RESET STOCKS (solo admin)
 // ================================================================
 async function resetearStocks() {
+  if (currentUserRole !== "admin") {
+    toast("No tienes permiso para resetear los stocks", "error");
+    return;
+  }
   const ok = await showCustomModal({
     title: "Inventario nuevo",
     subtitle: "¿Eliminar todos los stocks? No se puede deshacer.",
@@ -838,6 +886,20 @@ async function resetearStocks() {
 }
 
 // ================================================================
+//  AJUSTAR UI SEGÚN ROL
+// ================================================================
+function ajustarUIporRol() {
+  const isAdmin = currentUserRole === "admin";
+  // Ocultar botones de exportar/copiar productos.js y resetear stocks para invitados
+  if (exportarProductosBtn)
+    exportarProductosBtn.style.display = isAdmin ? "" : "none";
+  if (copiarProductosBtn)
+    copiarProductosBtn.style.display = isAdmin ? "" : "none";
+  if (nuevoInventarioBtn)
+    nuevoInventarioBtn.style.display = isAdmin ? "" : "none";
+}
+
+// ================================================================
 //  INIT (carga desde Worker)
 // ================================================================
 async function initApp() {
@@ -849,6 +911,7 @@ async function initApp() {
     cargarStocks();
     construirIndiceCategorias();
     renderizarProductos();
+    ajustarUIporRol();
     toast("Datos cargados desde GitHub (vía Worker)", "success");
   } catch (error) {
     toast(
@@ -862,6 +925,7 @@ async function initApp() {
       cargarStocks();
       construirIndiceCategorias();
       renderizarProductos();
+      ajustarUIporRol();
     } else {
       productosContainer.innerHTML =
         '<div class="empty">Error crítico: no se pudieron cargar los productos.</div>';
