@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="es">
+    <head>
+        <meta charset="UTF-8" />
+        <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=yes"
+        />
+        <title>Inventario Dumashe</title>
+        <link rel="stylesheet" href="styles.css" />
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+        <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+        <script src="productos.js"></script>
+    </head>
+    <body>
+        <!-- LOGIN MODAL -->
+        <div id="loginModal" class="modal-overlay active">
+            <div class="modal-card">
+                <div class="modal-lock-icon"><i data-lucide="lock"></i></div>
+                <h2>Acceso restringido</h2>
+                <p>Ingresa la contraseña para continuar</p>
+                <input
+                    type="password"
+                    id="passwordInput"
+                    placeholder="Contraseña"
+                    autocomplete="off"
+                />
+                <button id="loginBtn">Entrar</button>
+                <div id="loginError" class="error-msg"></div>
+            </div>
+        </div>
+
+        <!-- CUSTOM MODAL (editar / agregar / confirmar) -->
+        <div id="customModal" class="modal-overlay" style="display: none">
+            <div class="modal-card custom-modal-card">
+                <h2 id="customModalTitle">Título</h2>
+                <p id="customModalSubtitle" class="modal-subtitle"></p>
+                <div id="customModalFields" class="modal-fields"></div>
+                <div class="modal-actions">
+                    <button id="customModalCancel" class="btn-secondary">
+                        Cancelar
+                    </button>
+                    <button id="customModalConfirm">Confirmar</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- APP -->
+        <div id="app" style="display: none">
+            <div class="container">
+                <header>
+                    <div class="header-top">
+                        <div class="header-brand">
+                            <span class="header-eyebrow">Inventario</span>
+                            <h1>Dumashe</h1>
+                        </div>
+                        <button
+                            id="nuevoInventarioBtn"
+                            class="btn-icon-only"
+                            title="Inventario nuevo"
+                        >
+                            <i data-lucide="refresh-cw"></i>
+                        </button>
+                    </div>
+                    <div class="actions">
+                        <details class="btn-group">
+                            <summary class="btn btn-outline">
+                                <i data-lucide="download"></i> Descargar
+                            </summary>
+                            <div class="dropdown-panel">
+                                <button id="exportarPdfBtn">
+                                    <i data-lucide="file-text"></i> Exportar PDF
+                                    (Alegra)
+                                </button>
+                                <button id="exportarProductosBtn">
+                                    <i data-lucide="code"></i> Exportar
+                                    productos.js
+                                </button>
+                                <button id="copiarProductosBtn">
+                                    <i data-lucide="clipboard-copy"></i> Copiar
+                                    productos.js
+                                </button>
+                                <button id="descargarMarkdownBtn">
+                                    <i data-lucide="file-down"></i> Descargar
+                                    .md
+                                </button>
+                                <button id="copiarMarkdownBtn">
+                                    <i data-lucide="clipboard"></i> Copiar
+                                    Markdown
+                                </button>
+                            </div>
+                        </details>
+                        <details class="btn-group">
+                            <summary class="btn btn-outline">
+                                <i data-lucide="send"></i> Telegram
+                            </summary>
+                            <div class="dropdown-panel">
+                                <button id="enviarPdfSimpleTelegramBtn">
+                                    <i data-lucide="file-text"></i> Enviar PDF a
+                                    Telegram
+                                </button>
+                                <button id="enviarReporteTelegramBtn">
+                                    <i data-lucide="bar-chart-2"></i> Enviar
+                                    Reporte a Telegram
+                                </button>
+                                <button id="enviarMdTelegramBtn">
+                                    <i data-lucide="file-down"></i> Enviar
+                                    Markdown
+                                </button>
+                                <button id="enviarJsTelegramBtn">
+                                    <i data-lucide="code"></i> Enviar
+                                    productos.js
+                                </button>
+                            </div>
+                        </details>
+                    </div>
+                </header>
+
+                <!-- ÍNDICE DE CATEGORÍAS -->
+                <div class="filter-categories">
+                    <div class="filter-header">
+                        <span class="filter-label">Categorías</span>
+                    </div>
+                    <div id="categoriasChecklist" class="checklist"></div>
+                </div>
+
+                <div id="productosContainer"></div>
+
+                <div id="hiddenProductsSection" style="margin-top: 24px">
+                    <button id="toggleHiddenBtn" class="btn-outline btn-full">
+                        <i data-lucide="folder"></i>
+                        <span>Mostrar categorías ocultas</span>
+                    </button>
+                    <div
+                        id="hiddenProductsContainer"
+                        style="display: none; margin-top: 12px"
+                    ></div>
+                </div>
+
+                <footer>Los cambios se guardan automáticamente.</footer>
+            </div>
+        </div>
+
+        <!-- IMAGE MODAL -->
+        <div id="imageModal" class="modal-overlay" style="display: none">
+            <div class="modal-content">
+                <button id="closeModalBtn" class="close">
+                    <i data-lucide="x"></i>
+                </button>
+                <img id="modalImage" src="" alt="Vista ampliada" />
+                <div id="modalImgNombre" class="modal-img-nombre"></div>
+            </div>
+        </div>
+
+        <div class="toast-container" id="toasts"></div>
+
+        <script src="app.js"></script>
+        <script>
+            lucide.createIcons();
+        </script>
+    </body>
+</html>
