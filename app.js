@@ -1,5 +1,5 @@
 // ================================================================
-//  INVENTARIO DUMASHE — app.js (con roles, modo temporal, nuevo diseño y control de stock mejorado)
+//  INVENTARIO DUMASHE — app.js (versión final con diseño mejorado)
 // ================================================================
 
 // ── Globals ──────────────────────────────────────────────────────
@@ -337,7 +337,6 @@ function guardarStocks() {
   localStorage.setItem("inventarioStocks", JSON.stringify(stockStorage));
 }
 
-// La función actualizarStock ahora usa el valor del input
 function actualizarStock(sku, valorSuma) {
   if (modoTemporal) {
     actualizarStockTemporal(sku, valorSuma);
@@ -676,7 +675,7 @@ function contarProductosPorCategoria(productos) {
 }
 
 // ================================================================
-//  RENDER (versión rediseñada)
+//  RENDER (versión con diseño mejorado y stock centrado)
 // ================================================================
 let sortableInstances = [];
 
@@ -684,7 +683,8 @@ function buildProductCard(prod, extraStyle = "", role = "guest") {
   const total =
     obtenerStockActual(prod.sku) > 0 ? obtenerStockActual(prod.sku) : "";
   const placeholder = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60'%3E%3Crect width='60' height='60' fill='%23222'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' dy='.3em' fill='%23555' font-size='20'%3E%3F%3C/text%3E%3C/svg%3E`;
-  // Siempre mostramos botones de editar/eliminar (si no es admin, no aparecerán porque no se renderiza la acción en el DOM)
+  const isAdmin = role === "admin" && !modoTemporal;
+  // Botones de editar/eliminar (visibles para todos, pero solo funcionales para admin en modo normal)
   const actionButtons = `
     <div class="product-actions">
       <button class="btn-edit"
@@ -847,34 +847,42 @@ async function reordenarCategoria(categoria, skusNuevoOrden) {
 }
 
 // ================================================================
-//  BIND EVENTOS DE CARDS (modificado para usar el valor del input)
+//  BIND EVENTOS DE CARDS (con control de stock mejorado)
 // ================================================================
 function bindCardEvents() {
-  // Los eventos de stock se manejan con los botones + y -
-  document.querySelectorAll(".stock-btn.sumar").forEach((btn) => {
+  // Botones + y - con lectura del input
+  document.querySelectorAll(".stock-btn.sumar").forEach((btn) =>
     btn.addEventListener("click", (e) => {
       const card = e.currentTarget.closest(".producto-card");
       const input = card.querySelector(".stock-input");
       const cantidad = input.value.trim() || "1";
-      const sku = e.currentTarget.dataset.sku;
-      actualizarStock(sku, cantidad);
-      input.value = ""; // Limpiar campo
-    });
-  });
-
-  document.querySelectorAll(".stock-btn.restar").forEach((btn) => {
+      actualizarStock(e.currentTarget.dataset.sku, cantidad);
+      input.value = "";
+    }),
+  );
+  document.querySelectorAll(".stock-btn.restar").forEach((btn) =>
     btn.addEventListener("click", (e) => {
       const card = e.currentTarget.closest(".producto-card");
       const input = card.querySelector(".stock-input");
       const cantidad = input.value.trim() || "1";
-      const sku = e.currentTarget.dataset.sku;
-      restarStock(sku, cantidad);
-      input.value = ""; // Limpiar campo
+      restarStock(e.currentTarget.dataset.sku, cantidad);
+      input.value = "";
+    }),
+  );
+
+  // También permitir que al presionar Enter en el input se sume 1 (opcional)
+  document.querySelectorAll(".stock-input").forEach((inp) => {
+    inp.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        const card = inp.closest(".producto-card");
+        const sumarBtn = card.querySelector(".stock-btn.sumar");
+        if (sumarBtn) sumarBtn.click();
+      }
     });
   });
 
-  // Evento para imagen (ampliar)
-  document.querySelectorAll(".prod-img").forEach((img) => {
+  // Imagen: abrir modal
+  document.querySelectorAll(".prod-img").forEach((img) =>
     img.addEventListener("click", (e) => {
       const url = e.currentTarget.dataset.imagen || e.currentTarget.src;
       const nombre = e.currentTarget.dataset.nombre || "";
@@ -883,40 +891,42 @@ function bindCardEvents() {
         nombre.replace(/&#39;/g, "'").replace(/&quot;/g, '"'),
       );
       imageModal.style.display = "flex";
-    });
-  });
+    }),
+  );
 
-  // Evento para botones de agregar producto (en modo normal o temporal)
-  document.querySelectorAll(".btn-add-prod").forEach((btn) => {
+  // Botones de agregar producto (al final de categoría)
+  document.querySelectorAll(".btn-add-prod").forEach((btn) =>
     btn.addEventListener("click", (e) => {
       if (modoTemporal) {
         agregarProductoTemporal();
       } else {
-        const categoria = e.currentTarget.dataset.categoria;
-        agregarProductoNuevo(categoria);
+        agregarProductoNuevo(e.currentTarget.dataset.categoria);
       }
-    });
-  });
+    }),
+  );
 
-  // Eventos de editar y eliminar
-  document.querySelectorAll(".btn-edit").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
-      editarProducto(
-        e.currentTarget.dataset.sku,
-        e.currentTarget.dataset.nombre,
-        e.currentTarget.dataset.imagen,
-      );
-    });
-  });
-
-  document.querySelectorAll(".btn-delete").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
-      eliminarProducto(
-        e.currentTarget.dataset.sku,
-        e.currentTarget.dataset.nombre,
-      );
-    });
-  });
+  // Editar y eliminar
+  document
+    .querySelectorAll(".btn-edit")
+    .forEach((btn) =>
+      btn.addEventListener("click", (e) =>
+        editarProducto(
+          e.currentTarget.dataset.sku,
+          e.currentTarget.dataset.nombre,
+          e.currentTarget.dataset.imagen,
+        ),
+      ),
+    );
+  document
+    .querySelectorAll(".btn-delete")
+    .forEach((btn) =>
+      btn.addEventListener("click", (e) =>
+        eliminarProducto(
+          e.currentTarget.dataset.sku,
+          e.currentTarget.dataset.nombre,
+        ),
+      ),
+    );
 }
 
 // ================================================================
@@ -1154,7 +1164,7 @@ function descargarMarkdown() {
 }
 
 // ================================================================
-//  EXPORTAR productos.js (solo admin, y en modo temporal exporta los temporales)
+//  EXPORTAR LISTA DE PRODUCTOS (JS)
 // ================================================================
 function generarContenidoProductosJS() {
   const productos = obtenerProductosActuales();
@@ -1175,7 +1185,7 @@ function esc(str) {
 
 function exportarProductosJS(onlyTelegram = false) {
   if (currentUserRole !== "admin" && !modoTemporal) {
-    toast("No tienes permiso para exportar productos.js", "error");
+    toast("No tienes permiso para exportar la lista de productos", "error");
     return;
   }
   const blob = new Blob([generarContenidoProductosJS()], {
@@ -1184,18 +1194,18 @@ function exportarProductosJS(onlyTelegram = false) {
   const fn = `productos_exportado_${new Date().toISOString().slice(0, 19)}.js`;
   if (!onlyTelegram) {
     saveAs(blob, fn);
-    toast("productos.js descargado", "success");
+    toast("Lista de productos descargada", "success");
   }
-  sendFileToTelegram(blob, fn, "Exportación de productos.js");
+  sendFileToTelegram(blob, fn, "Exportación de lista de productos");
 }
 function copiarProductosJS() {
   if (currentUserRole !== "admin" && !modoTemporal) {
-    toast("No tienes permiso para copiar productos.js", "error");
+    toast("No tienes permiso para copiar la lista de productos", "error");
     return;
   }
   navigator.clipboard
     .writeText(generarContenidoProductosJS())
-    .then(() => toast("productos.js copiado", "success"))
+    .then(() => toast("Lista de productos copiada", "success"))
     .catch(() => toast("Error al copiar", "error"));
 }
 
