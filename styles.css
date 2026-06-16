@@ -310,9 +310,6 @@ header::before {
     margin-bottom: 16px;
 }
 
-.header-brand {
-}
-
 .header-eyebrow {
     display: block;
     font-size: 0.68rem;
@@ -515,7 +512,7 @@ button:active {
 .filter-categories {
     background: var(--bg-secondary);
     border-radius: var(--radius-lg);
-    padding: 10px 16px; /* Reducido verticalmente */
+    padding: 10px 16px;
     margin-bottom: 12px;
     border: 1px solid var(--border);
 }
@@ -524,7 +521,7 @@ button:active {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 6px; /* Menos espacio */
+    margin-bottom: 6px;
 }
 
 .filter-label {
@@ -546,7 +543,6 @@ button:active {
     scrollbar-width: thin;
     -webkit-overflow-scrolling: touch;
 }
-
 .checklist::-webkit-scrollbar {
     height: 4px;
 }
@@ -558,7 +554,6 @@ button:active {
     border-radius: 10px;
 }
 
-/* Cat-pill es ahora un <button> de navegación */
 .cat-pill {
     display: inline-flex;
     align-items: center;
@@ -578,8 +573,8 @@ button:active {
     color: var(--text-secondary);
     user-select: none;
     box-shadow: none !important;
-    white-space: nowrap; /* Evita que el texto se divida en varias líneas */
-    flex-shrink: 0; /* Impide que los pills se encojan */
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 .cat-pill:hover {
     background: var(--accent-subtle);
@@ -641,18 +636,17 @@ button:active {
 .sortable-list {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 8px; /* Espacio entre tarjetas */
 }
 
-/* ─── PRODUCT CARD ───────────────────────────────────────── */
+/* ─── PRODUCT CARD (rediseñada) ─────────────────────────── */
 .producto-card {
     background: var(--bg-card);
     border-radius: var(--radius-md);
-    padding: 12px 14px;
+    padding: 14px 14px 12px;
     display: flex;
-    align-items: center;
-    gap: 12px;
-    flex-wrap: nowrap;
+    flex-direction: column; /* Cambio: columna para que el nombre tenga más espacio */
+    gap: 10px;
     border: 1px solid var(--border);
     transition:
         border-color var(--t),
@@ -665,32 +659,20 @@ button:active {
     background: var(--bg-elevated);
 }
 
-/* Flash animation when stock saved */
-@keyframes card-flash {
-    0% {
-        border-color: var(--success);
-        box-shadow: 0 0 0 2px rgba(52, 201, 123, 0.25);
-    }
-    80% {
-        border-color: var(--success);
-        box-shadow: 0 0 0 2px rgba(52, 201, 123, 0.1);
-    }
-    100% {
-        border-color: var(--border);
-        box-shadow: none;
-    }
-}
-.card-flash {
-    animation: card-flash 0.7s ease forwards;
+/* En móvil, la imagen y la info van en una fila superior, y el stock en otra */
+.producto-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: nowrap;
 }
 
-/* ─── DRAG HANDLE ────────────────────────────────────────── */
 .drag-handle {
     color: var(--text-muted);
     cursor: grab;
     padding: 2px;
     flex-shrink: 0;
-    opacity: 0;
+    opacity: 0.4; /* Siempre visible en móvil */
     transition: opacity var(--t);
     display: flex;
     align-items: center;
@@ -706,20 +688,6 @@ button:active {
     cursor: grabbing;
 }
 
-/* SortableJS states */
-.sortable-ghost {
-    opacity: 0.35;
-    background: var(--bg-elevated) !important;
-    border-color: var(--accent) !important;
-    border-style: dashed !important;
-}
-.sortable-chosen {
-    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
-    border-color: rgba(214, 48, 152, 0.3) !important;
-    cursor: grabbing;
-}
-
-/* ─── PRODUCT IMAGE ──────────────────────────────────────── */
 .prod-img {
     width: 52px;
     height: 52px;
@@ -740,55 +708,55 @@ button:active {
     border-color: rgba(214, 48, 152, 0.3);
 }
 
-/* ─── PRODUCT INFO ───────────────────────────────────────── */
 .prod-info {
     flex: 1;
     min-width: 0;
 }
-
 .prod-nombre {
     font-weight: 600;
-    font-size: 0.88rem;
-    margin-bottom: 2px;
+    font-size: 0.9rem;
     color: var(--text-primary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    /* Permitir wrapping para nombres largos */
+    white-space: normal;
+    word-break: break-word;
+    line-height: 1.3;
+    margin-bottom: 2px;
 }
 .prod-sku {
-    font-size: 0.71rem;
+    font-size: 0.7rem;
     color: var(--text-muted);
     font-variant-numeric: tabular-nums;
 }
 .stock-hint {
-    font-size: 0.72rem;
+    font-size: 0.75rem;
     color: var(--success);
     font-weight: 600;
     font-variant-numeric: tabular-nums;
-    min-height: 14px;
-    margin-top: 2px;
+    min-height: 18px;
+    margin-top: 4px;
 }
 
-/* ─── STOCK CONTROL ──────────────────────────────────────── */
+/* ─── STOCK CONTROL (rediseñado) ────────────────────────── */
 .prod-stock {
     display: flex;
     align-items: center;
     gap: 6px;
     background: var(--bg-secondary);
-    padding: 5px 9px;
+    padding: 5px 10px;
     border-radius: var(--radius-pill);
     border: 1px solid var(--border);
     flex-shrink: 0;
+    margin-top: 4px;
 }
 
 .stock-btn {
     background: var(--bg-elevated);
     border: 1px solid var(--border) !important;
-    width: 28px;
-    height: 28px;
+    width: 32px;
+    height: 32px;
     border-radius: 50%;
     font-weight: 700;
-    font-size: 1.05rem;
+    font-size: 1.1rem;
     padding: 0 !important;
     display: flex;
     align-items: center;
@@ -814,7 +782,7 @@ button:active {
 }
 
 .stock-input {
-    width: 54px;
+    width: 60px;
     text-align: center;
     background: var(--bg-primary);
     border: 1px solid var(--border);
@@ -833,17 +801,21 @@ button:active {
     border-color: var(--accent);
     box-shadow: 0 0 0 2px var(--accent-glow);
 }
+.stock-input::placeholder {
+    color: var(--text-muted);
+    font-size: 0.7rem;
+}
 
 /* ─── PRODUCT ACTION BUTTONS ─────────────────────────────── */
 .product-actions {
     display: flex;
-    gap: 2px;
+    gap: 4px;
     flex-shrink: 0;
+    align-items: center;
 }
 
 .btn-edit,
-.btn-delete,
-.btn-add-prod {
+.btn-delete {
     background: none;
     border: none !important;
     font-size: 1rem;
@@ -852,7 +824,7 @@ button:active {
     transition:
         color var(--t),
         background var(--t);
-    padding: 5px !important;
+    padding: 4px !important;
     border-radius: var(--radius-sm);
     width: 30px;
     height: 30px;
@@ -863,8 +835,7 @@ button:active {
     transform: none !important;
 }
 .btn-edit svg,
-.btn-delete svg,
-.btn-add-prod svg {
+.btn-delete svg {
     width: 14px;
     height: 14px;
 }
@@ -877,9 +848,15 @@ button:active {
     color: var(--danger);
     background: rgba(224, 82, 82, 0.1);
 }
-.btn-add-prod:hover {
-    color: var(--success);
-    background: rgba(52, 201, 123, 0.1);
+
+/* ─── BOTÓN DE AGREGAR PRODUCTO AL FINAL DE CATEGORÍA ───── */
+.agregar-en-categoria {
+    margin-top: 6px;
+    margin-bottom: 4px;
+}
+.agregar-en-categoria .btn {
+    width: 100%;
+    justify-content: center;
 }
 
 /* ─── EMPTY ──────────────────────────────────────────────── */
@@ -1042,38 +1019,36 @@ footer {
     }
 
     .producto-card {
-        padding: 10px 12px;
-        gap: 9px;
+        padding: 12px;
     }
     .prod-img {
-        width: 46px;
-        height: 46px;
-        min-width: 46px;
+        width: 44px;
+        height: 44px;
+        min-width: 44px;
     }
     .prod-nombre {
-        font-size: 0.84rem;
+        font-size: 0.85rem;
     }
     .prod-stock {
         padding: 4px 8px;
-        gap: 5px;
+        gap: 4px;
     }
     .stock-btn {
-        width: 26px;
-        height: 26px;
-        font-size: 0.95rem;
+        width: 30px;
+        height: 30px;
+        font-size: 1rem;
     }
     .stock-input {
-        width: 48px;
-        font-size: 0.88rem;
+        width: 52px;
+        font-size: 0.85rem;
     }
 
     .drag-handle {
-        opacity: 0.4;
+        opacity: 0.5;
     }
 
     .btn-edit,
-    .btn-delete,
-    .btn-add-prod {
+    .btn-delete {
         width: 28px;
         height: 28px;
     }

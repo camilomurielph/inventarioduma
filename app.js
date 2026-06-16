@@ -1,5 +1,5 @@
 // ================================================================
-//  INVENTARIO DUMASHE — app.js (con roles y modo temporal mejorado)
+//  INVENTARIO DUMASHE — app.js (con roles, modo temporal, nuevo diseño y control de stock mejorado)
 // ================================================================
 
 // ── Globals ──────────────────────────────────────────────────────
@@ -315,7 +315,6 @@ function doLogin() {
 function cerrarSesion() {
   localStorage.removeItem("inventarioAuth");
   localStorage.removeItem("userRole");
-  // Si estamos en modo temporal, limpiar datos temporales (opcional)
   if (modoTemporal) {
     localStorage.removeItem(STORAGE_TEMP_PROD);
     localStorage.removeItem(STORAGE_TEMP_STOCK);
@@ -338,6 +337,7 @@ function guardarStocks() {
   localStorage.setItem("inventarioStocks", JSON.stringify(stockStorage));
 }
 
+// La función actualizarStock ahora usa el valor del input
 function actualizarStock(sku, valorSuma) {
   if (modoTemporal) {
     actualizarStockTemporal(sku, valorSuma);
@@ -384,7 +384,6 @@ function actualizarCardStock(sku, total) {
 // ================================================================
 async function agregarProductoNuevo(categoria) {
   if (modoTemporal) {
-    // En modo temporal, llamamos a agregarProductoTemporal
     await agregarProductoTemporal();
     return;
   }
@@ -677,7 +676,7 @@ function contarProductosPorCategoria(productos) {
 }
 
 // ================================================================
-//  RENDER
+//  RENDER (versión rediseñada)
 // ================================================================
 let sortableInstances = [];
 
@@ -685,28 +684,8 @@ function buildProductCard(prod, extraStyle = "", role = "guest") {
   const total =
     obtenerStockActual(prod.sku) > 0 ? obtenerStockActual(prod.sku) : "";
   const placeholder = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60'%3E%3Crect width='60' height='60' fill='%23222'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' dy='.3em' fill='%23555' font-size='20'%3E%3F%3C/text%3E%3C/svg%3E`;
-  const isAdmin = role === "admin" && !modoTemporal;
-  const actionButtons = isAdmin
-    ? `
-    <div class="product-actions">
-      <button class="btn-edit"
-              data-sku="${escapeAttr(prod.sku)}"
-              data-nombre="${escapeAttr(prod.nombre)}"
-              data-imagen="${escapeAttr(prod.imagenUrl)}" title="Editar">
-        <i data-lucide="pencil"></i>
-      </button>
-      <button class="btn-delete"
-              data-sku="${escapeAttr(prod.sku)}"
-              data-nombre="${escapeAttr(prod.nombre)}" title="Eliminar">
-        <i data-lucide="trash-2"></i>
-      </button>
-      <button class="btn-add-prod"
-              data-categoria="${escapeAttr(prod.categoria || "")}" title="Agregar producto">
-        <i data-lucide="plus"></i>
-      </button>
-    </div>
-  `
-    : `
+  // Siempre mostramos botones de editar/eliminar (si no es admin, no aparecerán porque no se renderiza la acción en el DOM)
+  const actionButtons = `
     <div class="product-actions">
       <button class="btn-edit"
               data-sku="${escapeAttr(prod.sku)}"
@@ -724,28 +703,31 @@ function buildProductCard(prod, extraStyle = "", role = "guest") {
 
   return `
     <div class="producto-card" data-sku="${escapeAttr(prod.sku)}" ${extraStyle ? `style="${extraStyle}"` : ""}>
-      <div class="drag-handle" title="Arrastrar para reordenar">
-        <i data-lucide="grip-vertical"></i>
-      </div>
-      <img class="prod-img"
-           src="${escapeAttr(prod.imagenUrl) || placeholder}"
-           alt="${escapeHtml(prod.nombre)}"
-           data-imagen="${escapeAttr(prod.imagenUrl)}"
-           data-nombre="${escapeAttr(prod.nombre)}"
-           onerror="this.src='${placeholder}'">
-      <div class="prod-info">
-        <div class="prod-nombre">${escapeHtml(prod.nombre)}</div>
-        <div class="prod-sku">${escapeHtml(prod.sku)}</div>
-        <div class="stock-hint">${total ? `Total: ${total}` : ""}</div>
+      <div class="producto-row">
+        <div class="drag-handle" title="Arrastrar para reordenar">
+          <i data-lucide="grip-vertical"></i>
+        </div>
+        <img class="prod-img"
+             src="${escapeAttr(prod.imagenUrl) || placeholder}"
+             alt="${escapeHtml(prod.nombre)}"
+             data-imagen="${escapeAttr(prod.imagenUrl)}"
+             data-nombre="${escapeAttr(prod.nombre)}"
+             onerror="this.src='${placeholder}'">
+        <div class="prod-info">
+          <div class="prod-nombre">${escapeHtml(prod.nombre)}</div>
+          <div class="prod-sku">${escapeHtml(prod.sku)}</div>
+          <div class="stock-hint">${total ? `Total: ${total}` : ""}</div>
+        </div>
+        ${actionButtons}
       </div>
       <div class="prod-stock">
         <button class="stock-btn restar" data-sku="${escapeAttr(prod.sku)}">−</button>
         <input type="text" inputmode="numeric" class="stock-input"
-               data-sku="${escapeAttr(prod.sku)}" value="" placeholder="+ suma">
+               data-sku="${escapeAttr(prod.sku)}" value="" placeholder="Cantidad">
         <button class="stock-btn sumar" data-sku="${escapeAttr(prod.sku)}">+</button>
       </div>
-      ${actionButtons}
-    </div>`;
+    </div>
+  `;
 }
 
 function renderizarProductos() {
@@ -754,7 +736,6 @@ function renderizarProductos() {
   const role = currentUserRole || "guest";
   const productos = obtenerProductosActuales();
 
-  // Ocultar/mostrar sección de categorías y botón de agregar temporal
   if (modoTemporal) {
     categoriasSection.style.display = "none";
     temporalActions.style.display = "block";
@@ -765,7 +746,6 @@ function renderizarProductos() {
 
   let html = "";
   if (modoTemporal) {
-    // Sin categorías, lista plana
     if (productos.length === 0) {
       html =
         '<div class="empty">No hay productos en el conteo temporal. Haz clic en "Agregar producto temporal" para comenzar.</div>';
@@ -773,7 +753,6 @@ function renderizarProductos() {
       html = productos.map((p) => buildProductCard(p, "", role)).join("");
     }
   } else {
-    // Modo normal: agrupar por categoría
     const grupos = {};
     const ordenCats = [];
     for (let p of productos) {
@@ -793,14 +772,25 @@ function renderizarProductos() {
         </div>
         <div class="sortable-list" data-categoria="${escapeAttr(cat)}">
           ${prods.map((p) => buildProductCard(p, "", role)).join("")}
-        </div>`;
+        </div>
+        ${
+          role === "admin"
+            ? `
+          <div class="agregar-en-categoria">
+            <button class="btn btn-outline btn-add-prod" data-categoria="${escapeAttr(cat)}">
+              <i data-lucide="plus"></i> Agregar producto
+            </button>
+          </div>
+        `
+            : ""
+        }
+      `;
     }
   }
 
   productosContainer.innerHTML =
     html || '<div class="empty">Sin productos.</div>';
 
-  // Solo permitir arrastrar en modo normal
   if (!modoTemporal) {
     productosContainer.querySelectorAll(".sortable-list").forEach((list) => {
       sortableInstances.push(
@@ -857,31 +847,34 @@ async function reordenarCategoria(categoria, skusNuevoOrden) {
 }
 
 // ================================================================
-//  BIND EVENTOS DE CARDS
+//  BIND EVENTOS DE CARDS (modificado para usar el valor del input)
 // ================================================================
 function bindCardEvents() {
-  document.querySelectorAll(".stock-input").forEach((inp) => {
-    inp.addEventListener("change", (e) => {
-      const v = e.target.value.trim();
-      if (v) actualizarStock(e.target.dataset.sku, v);
+  // Los eventos de stock se manejan con los botones + y -
+  document.querySelectorAll(".stock-btn.sumar").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      const card = e.currentTarget.closest(".producto-card");
+      const input = card.querySelector(".stock-input");
+      const cantidad = input.value.trim() || "1";
+      const sku = e.currentTarget.dataset.sku;
+      actualizarStock(sku, cantidad);
+      input.value = ""; // Limpiar campo
     });
   });
-  document
-    .querySelectorAll(".stock-btn.sumar")
-    .forEach((btn) =>
-      btn.addEventListener("click", (e) =>
-        actualizarStock(e.currentTarget.dataset.sku, "1"),
-      ),
-    );
-  document
-    .querySelectorAll(".stock-btn.restar")
-    .forEach((btn) =>
-      btn.addEventListener("click", (e) =>
-        restarStock(e.currentTarget.dataset.sku, "1"),
-      ),
-    );
 
-  document.querySelectorAll(".prod-img").forEach((img) =>
+  document.querySelectorAll(".stock-btn.restar").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      const card = e.currentTarget.closest(".producto-card");
+      const input = card.querySelector(".stock-input");
+      const cantidad = input.value.trim() || "1";
+      const sku = e.currentTarget.dataset.sku;
+      restarStock(sku, cantidad);
+      input.value = ""; // Limpiar campo
+    });
+  });
+
+  // Evento para imagen (ampliar)
+  document.querySelectorAll(".prod-img").forEach((img) => {
     img.addEventListener("click", (e) => {
       const url = e.currentTarget.dataset.imagen || e.currentTarget.src;
       const nombre = e.currentTarget.dataset.nombre || "";
@@ -890,43 +883,40 @@ function bindCardEvents() {
         nombre.replace(/&#39;/g, "'").replace(/&quot;/g, '"'),
       );
       imageModal.style.display = "flex";
-    }),
-  );
+    });
+  });
 
-  document.querySelectorAll(".btn-add-prod").forEach((btn) =>
+  // Evento para botones de agregar producto (en modo normal o temporal)
+  document.querySelectorAll(".btn-add-prod").forEach((btn) => {
     btn.addEventListener("click", (e) => {
-      // Si modo temporal, el botón ya tiene el listener correcto en el DOM
-      // pero por si acaso, llamamos a la función correspondiente
       if (modoTemporal) {
         agregarProductoTemporal();
       } else {
-        agregarProductoNuevo(e.currentTarget.dataset.categoria);
+        const categoria = e.currentTarget.dataset.categoria;
+        agregarProductoNuevo(categoria);
       }
-    }),
-  );
+    });
+  });
 
-  document
-    .querySelectorAll(".btn-edit")
-    .forEach((btn) =>
-      btn.addEventListener("click", (e) =>
-        editarProducto(
-          e.currentTarget.dataset.sku,
-          e.currentTarget.dataset.nombre,
-          e.currentTarget.dataset.imagen,
-        ),
-      ),
-    );
+  // Eventos de editar y eliminar
+  document.querySelectorAll(".btn-edit").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      editarProducto(
+        e.currentTarget.dataset.sku,
+        e.currentTarget.dataset.nombre,
+        e.currentTarget.dataset.imagen,
+      );
+    });
+  });
 
-  document
-    .querySelectorAll(".btn-delete")
-    .forEach((btn) =>
-      btn.addEventListener("click", (e) =>
-        eliminarProducto(
-          e.currentTarget.dataset.sku,
-          e.currentTarget.dataset.nombre,
-        ),
-      ),
-    );
+  document.querySelectorAll(".btn-delete").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      eliminarProducto(
+        e.currentTarget.dataset.sku,
+        e.currentTarget.dataset.nombre,
+      );
+    });
+  });
 }
 
 // ================================================================
@@ -937,11 +927,9 @@ function iniciarModoTemporal() {
     toast("Ya estás en modo temporal", "info");
     return;
   }
-  // Cargar datos temporales guardados o empezar vacío
   productosTemporales = cargarProductosTemporales();
   stockTemporal = cargarStocksTemporales();
   modoTemporal = true;
-  // Ocultar categorías y mostrar acciones temporales
   renderizarProductos();
   construirIndiceCategorias();
   actualizarUImodoTemporal();
@@ -953,14 +941,11 @@ function iniciarModoTemporal() {
 
 function salirModoTemporal() {
   if (!modoTemporal) return;
-  // Opcional: preguntar si se desea guardar o descartar
   const confirmar = confirm(
     "¿Salir del modo temporal? Los datos se mantendrán guardados localmente para la próxima vez.",
   );
   if (confirmar) {
     modoTemporal = false;
-    // No borramos los datos temporales, así que al volver a entrar se recuperarán.
-    // Si se quiere empezar de cero, se puede borrar manualmente o añadir un botón de "Limpiar temporal".
     renderizarProductos();
     construirIndiceCategorias();
     actualizarUImodoTemporal();
@@ -986,7 +971,6 @@ function actualizarUImodoTemporal() {
     if (modoTemporal) {
       header.style.borderColor = "var(--warning)";
       header.style.boxShadow = "0 0 0 2px var(--warning)";
-      // Mostrar botón de salir si no existe
       let salirBtn = document.getElementById("salirTemporalBtn");
       if (!salirBtn) {
         salirBtn = document.createElement("button");
@@ -1000,7 +984,6 @@ function actualizarUImodoTemporal() {
       } else {
         salirBtn.style.display = "";
       }
-      // También agregar botón de limpiar temporal (opcional)
       let limpiarBtn = document.getElementById("limpiarTemporalBtn");
       if (!limpiarBtn) {
         limpiarBtn = document.createElement("button");
@@ -1132,7 +1115,6 @@ function exportarMarkdown() {
   let md = `# Inventario Dumashe - ${new Date().toLocaleDateString()}\n\n`;
   if (modoTemporal) md += "**MODO TEMPORAL**\n\n";
   if (modoTemporal) {
-    // Sin categorías, lista simple
     md += "| Stock | Item | SKU |\n|-------|------|-----|\n";
     productos.forEach((p) => {
       const stock = obtenerStockActual(p.sku) || "";
@@ -1269,8 +1251,6 @@ async function initApp() {
     categoriasSet.clear();
     productosData.forEach((p) => categoriasSet.add(p.categoria));
     cargarStocks();
-    // Si hay datos temporales guardados, los cargamos pero no activamos modo aún
-    // Solo se activa al hacer clic en el botón
     construirIndiceCategorias();
     renderizarProductos();
     ajustarUIporRol();
