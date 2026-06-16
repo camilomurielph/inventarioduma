@@ -636,7 +636,7 @@ button:active {
 .sortable-list {
     display: flex;
     flex-direction: column;
-    gap: 8px; /* Espacio entre tarjetas */
+    gap: 8px;
 }
 
 /* ─── PRODUCT CARD (rediseñada) ─────────────────────────── */
@@ -645,7 +645,7 @@ button:active {
     border-radius: var(--radius-md);
     padding: 14px 14px 12px;
     display: flex;
-    flex-direction: column; /* Cambio: columna para que el nombre tenga más espacio */
+    flex-direction: column;
     gap: 10px;
     border: 1px solid var(--border);
     transition:
@@ -659,7 +659,6 @@ button:active {
     background: var(--bg-elevated);
 }
 
-/* En móvil, la imagen y la info van en una fila superior, y el stock en otra */
 .producto-row {
     display: flex;
     align-items: center;
@@ -672,7 +671,7 @@ button:active {
     cursor: grab;
     padding: 2px;
     flex-shrink: 0;
-    opacity: 0.4; /* Siempre visible en móvil */
+    opacity: 0.4;
     transition: opacity var(--t);
     display: flex;
     align-items: center;
@@ -716,7 +715,6 @@ button:active {
     font-weight: 600;
     font-size: 0.9rem;
     color: var(--text-primary);
-    /* Permitir wrapping para nombres largos */
     white-space: normal;
     word-break: break-word;
     line-height: 1.3;
@@ -736,16 +734,17 @@ button:active {
     margin-top: 4px;
 }
 
-/* ─── STOCK CONTROL (rediseñado) ────────────────────────── */
+/* ─── STOCK CONTROL (centrado) ──────────────────────────── */
 .prod-stock {
     display: flex;
     align-items: center;
+    justify-content: center; /* <-- CENTRADO */
     gap: 6px;
     background: var(--bg-secondary);
     padding: 5px 10px;
     border-radius: var(--radius-pill);
     border: 1px solid var(--border);
-    flex-shrink: 0;
+    width: 100%; /* ocupa todo el ancho */
     margin-top: 4px;
 }
 
