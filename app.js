@@ -1,5 +1,5 @@
 // ================================================================
-//  INVENTARIO DUMASHE — app.js (versión final con importación/copia temporal)
+//  INVENTARIO DUMASHE — app.js (versión con importación desde script en ambos modos)
 // ================================================================
 
 // ── Globals ──────────────────────────────────────────────────────
@@ -638,7 +638,46 @@ async function eliminarProductoTemporal(sku) {
 }
 
 // ================================================================
-//  IMPORTAR MÚLTIPLES PRODUCTOS TEMPORALES DESDE TEXTO (CORREGIDO)
+//  PARSEAR BLOQUE DE PRODUCTOS (compartido)
+// ================================================================
+function parsearBloqueProductos(texto) {
+  const lineas = texto.split("\n");
+  const productos = [];
+  let actual = {};
+  for (let linea of lineas) {
+    const trim = linea.trim();
+    if (trim === "") {
+      if (actual.nombre && actual.sku) {
+        productos.push({ ...actual });
+        actual = {};
+      }
+      continue;
+    }
+    const matchNombre = trim.match(/^nombre\s*:\s*(.*)/i);
+    const matchSku = trim.match(/^sku\s*:\s*(.*)/i);
+    const matchUrl = trim.match(/^(?:url|url img|imagen|img)\s*:\s*(.*)/i);
+    if (matchNombre) {
+      actual.nombre = matchNombre[1].trim();
+    } else if (matchSku) {
+      actual.sku = matchSku[1].trim();
+    } else if (matchUrl) {
+      actual.imagenUrl = matchUrl[1].trim();
+    } else {
+      // Si no coincide con ningún patrón y ya tenemos producto, lo guardamos
+      if (actual.nombre && actual.sku) {
+        productos.push({ ...actual });
+        actual = {};
+      }
+    }
+  }
+  if (actual.nombre && actual.sku) {
+    productos.push({ ...actual });
+  }
+  return productos;
+}
+
+// ================================================================
+//  IMPORTAR MÚLTIPLES PRODUCTOS (MODO TEMPORAL)
 // ================================================================
 async function importarProductosTemporales() {
   const result = await showCustomModal({
@@ -650,8 +689,7 @@ async function importarProductosTemporales() {
         id: "bloque",
         label: "Bloque de productos",
         type: "textarea",
-        placeholder:
-          "Nombre: Pestañina 4 en 1\nSKU: PR0\nUrl img: https://...\n\nNombre: ...",
+        placeholder: "Nombre: ...\nSKU: ...\nUrl img: ...\n\nNombre: ...",
         required: true,
       },
     ],
@@ -659,46 +697,7 @@ async function importarProductosTemporales() {
   });
   if (!result) return;
 
-  const texto = result.bloque;
-  const lineas = texto.split("\n"); // NO filtramos líneas vacías
-  let productosImportados = [];
-  let productoActual = {};
-
-  for (let linea of lineas) {
-    const lineaTrim = linea.trim();
-    // Si la línea está vacía o solo espacios, es un separador
-    if (lineaTrim === "") {
-      if (productoActual.nombre && productoActual.sku) {
-        productosImportados.push({ ...productoActual });
-        productoActual = {};
-      }
-      continue;
-    }
-
-    const matchNombre = lineaTrim.match(/^nombre\s*:\s*(.*)/i);
-    const matchSku = lineaTrim.match(/^sku\s*:\s*(.*)/i);
-    const matchUrl = lineaTrim.match(/^(?:url|url img|imagen|img)\s*:\s*(.*)/i);
-
-    if (matchNombre) {
-      productoActual.nombre = matchNombre[1].trim();
-    } else if (matchSku) {
-      productoActual.sku = matchSku[1].trim();
-    } else if (matchUrl) {
-      productoActual.imagenUrl = matchUrl[1].trim();
-    } else {
-      // Si la línea no coincide con ningún patrón y no está vacía, la ignoramos
-      // pero si ya tenemos un producto acumulado, lo guardamos y reiniciamos
-      if (productoActual.nombre && productoActual.sku) {
-        productosImportados.push({ ...productoActual });
-        productoActual = {};
-      }
-    }
-  }
-  // Al final, guardar cualquier producto pendiente
-  if (productoActual.nombre && productoActual.sku) {
-    productosImportados.push({ ...productoActual });
-  }
-
+  const productosImportados = parsearBloqueProductos(result.bloque);
   if (productosImportados.length === 0) {
     toast(
       "No se encontraron productos válidos en el texto. Asegúrate de usar el formato: Nombre: ... SKU: ... Url img: ...",
@@ -707,7 +706,6 @@ async function importarProductosTemporales() {
     return;
   }
 
-  // Agregar cada producto
   let agregados = 0;
   for (let prod of productosImportados) {
     if (productosTemporales.some((p) => p.sku === prod.sku)) {
@@ -731,6 +729,74 @@ async function importarProductosTemporales() {
       "No se importó ningún producto nuevo (todos los SKU ya existían)",
       "info",
     );
+  }
+}
+
+// ================================================================
+//  IMPORTAR MÚLTIPLES PRODUCTOS (MODO NORMAL - "Agregar desde script")
+// ================================================================
+async function importarProductosPrincipales(categoria) {
+  if (currentUserRole !== "admin") {
+    toast("No tienes permiso para agregar productos", "error");
+    return;
+  }
+
+  const result = await showCustomModal({
+    title: "Agregar desde script",
+    subtitle: `Pega el bloque de productos con el formato:\n\nNombre: ...\nSKU: ...\nUrl img: ...\n\n(separados por líneas en blanco)\n\nSe asignarán a la categoría: ${categoria}`,
+    fields: [
+      {
+        id: "bloque",
+        label: "Bloque de productos",
+        type: "textarea",
+        placeholder: "Nombre: ...\nSKU: ...\nUrl img: ...\n\nNombre: ...",
+        required: true,
+      },
+    ],
+    confirmText: "Agregar",
+  });
+  if (!result) return;
+
+  const productosImportados = parsearBloqueProductos(result.bloque);
+  if (productosImportados.length === 0) {
+    toast("No se encontraron productos válidos en el texto", "error");
+    return;
+  }
+
+  let agregados = 0;
+  for (let prod of productosImportados) {
+    if (productosData.some((p) => p.sku === prod.sku)) {
+      toast(`SKU "${prod.sku}" ya existe, se omite`, "warning");
+      continue;
+    }
+    const nuevoProducto = {
+      sku: prod.sku,
+      nombre: prod.nombre,
+      categoria: categoria,
+      imagenUrl: prod.imagenUrl || "",
+    };
+    productosData.push(nuevoProducto);
+    if (!categoriasSet.has(categoria)) categoriasSet.add(categoria);
+    agregados++;
+  }
+
+  if (agregados > 0) {
+    try {
+      await guardarProductosEnGist(productosData);
+      renderizarProductos();
+      actualizarConteosCategorias();
+      toast(
+        `Se agregaron ${agregados} productos a la categoría ${categoria}`,
+        "success",
+      );
+    } catch (err) {
+      toast(
+        "Error al guardar en GitHub. Los cambios no son permanentes.",
+        "error",
+      );
+    }
+  } else {
+    toast("No se agregó ningún producto nuevo", "info");
   }
 }
 
@@ -808,7 +874,7 @@ function contarProductosPorCategoria(productos) {
 }
 
 // ================================================================
-//  RENDER
+//  RENDER (con botón "Agregar desde script" en modo normal)
 // ================================================================
 let sortableInstances = [];
 
@@ -907,9 +973,12 @@ function renderizarProductos() {
         ${
           role === "admin"
             ? `
-          <div class="agregar-en-categoria">
-            <button class="btn btn-outline btn-add-prod" data-categoria="${escapeAttr(cat)}">
+          <div style="display: flex; gap: 8px; margin-top: 6px; margin-bottom: 8px; flex-wrap: wrap;">
+            <button class="btn btn-outline btn-add-prod" data-categoria="${escapeAttr(cat)}" style="flex:1;">
               <i data-lucide="plus"></i> Agregar producto
+            </button>
+            <button class="btn btn-outline btn-import-script" data-categoria="${escapeAttr(cat)}" style="flex:1;">
+              <i data-lucide="file-json"></i> Agregar desde script
             </button>
           </div>
         `
@@ -978,7 +1047,7 @@ async function reordenarCategoria(categoria, skusNuevoOrden) {
 }
 
 // ================================================================
-//  BIND EVENTOS DE CARDS
+//  BIND EVENTOS DE CARDS (incluye botón "Agregar desde script")
 // ================================================================
 function bindCardEvents() {
   document.querySelectorAll(".stock-btn.sumar").forEach((btn) =>
@@ -1022,6 +1091,7 @@ function bindCardEvents() {
     }),
   );
 
+  // Botones de agregar producto en modo normal (final de categoría)
   document.querySelectorAll(".btn-add-prod").forEach((btn) =>
     btn.addEventListener("click", (e) => {
       if (modoTemporal) {
@@ -1029,6 +1099,14 @@ function bindCardEvents() {
       } else {
         agregarProductoNuevo(e.currentTarget.dataset.categoria);
       }
+    }),
+  );
+
+  // Botones de "Agregar desde script" (modo normal)
+  document.querySelectorAll(".btn-import-script").forEach((btn) =>
+    btn.addEventListener("click", (e) => {
+      const categoria = e.currentTarget.dataset.categoria;
+      importarProductosPrincipales(categoria);
     }),
   );
 
