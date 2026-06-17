@@ -639,7 +639,7 @@ button:active {
     gap: 8px;
 }
 
-/* ─── PRODUCT CARD (rediseñada) ─────────────────────────── */
+/* ─── PRODUCT CARD ───────────────────────────────────────── */
 .producto-card {
     background: var(--bg-card);
     border-radius: var(--radius-md);
@@ -727,24 +727,29 @@ button:active {
 }
 .stock-hint {
     font-size: 0.75rem;
-    color: var(--success);
     font-weight: 600;
-    font-variant-numeric: tabular-nums;
     min-height: 18px;
     margin-top: 4px;
+    transition: color var(--t);
+}
+
+/* ─── STOCK AGOTADO (color rojo) ─────────────────────────── */
+.stock-agotado {
+    color: var(--danger) !important;
+    font-weight: 700 !important;
 }
 
 /* ─── STOCK CONTROL (centrado) ──────────────────────────── */
 .prod-stock {
     display: flex;
     align-items: center;
-    justify-content: center; /* <-- CENTRADO */
+    justify-content: center;
     gap: 6px;
     background: var(--bg-secondary);
     padding: 5px 10px;
     border-radius: var(--radius-pill);
     border: 1px solid var(--border);
-    width: 100%; /* ocupa todo el ancho */
+    width: 100%;
     margin-top: 4px;
 }
 
