@@ -1,5 +1,5 @@
 // ================================================================
-//  INVENTARIO DUMASHE — app.js (stock mínimo -1)
+//  INVENTARIO DUMASHE — app.js (SKU opcional con generación automática)
 // ================================================================
 
 // ── Globals ──────────────────────────────────────────────────────
@@ -67,6 +67,38 @@ const imageModal = document.getElementById("imageModal");
 const modalImage = document.getElementById("modalImage");
 const modalImgNombre = document.getElementById("modalImgNombre");
 const closeModalBtn = document.getElementById("closeModalBtn");
+
+// ================================================================
+//  FUNCIÓN PARA GENERAR SKU AUTOMÁTICAMENTE
+// ================================================================
+function generarSKU(nombre, listaProductos, skuBase = null) {
+  // Si se proporciona un SKU base, intentar usarlo, pero si ya existe, generar uno nuevo
+  if (skuBase) {
+    // Verificar si el SKU ya existe en la lista
+    const existe = listaProductos.some((p) => p.sku === skuBase);
+    if (!existe) {
+      return skuBase;
+    }
+    // Si existe, generar uno nuevo basado en el nombre
+  }
+  // Generar SKU a partir del nombre
+  let sku = nombre
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // eliminar acentos
+    .replace(/[^a-z0-9]/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "");
+  if (sku.length === 0) sku = "producto";
+  // Asegurar que no existe
+  let contador = 1;
+  let skuFinal = sku;
+  while (listaProductos.some((p) => p.sku === skuFinal)) {
+    skuFinal = `${sku}${contador}`;
+    contador++;
+  }
+  return skuFinal;
+}
 
 // ================================================================
 //  CARGAR Y GUARDAR PRODUCTOS PRINCIPALES (vía Worker)
@@ -175,7 +207,6 @@ function restarStockTemporal(sku, cantidad) {
   if (!modoTemporal) return restarStock(sku, cantidad);
   const num = parseInt(cantidad, 10);
   if (isNaN(num) || num <= 0) return;
-  // No bajar de -1
   const nuevoValor = Math.max(-1, (stockTemporal[sku] || 0) - num);
   stockTemporal[sku] = nuevoValor;
   guardarStocksTemporales();
@@ -370,7 +401,6 @@ function restarStock(sku, valor) {
   }
   const num = parseInt(valor, 10);
   if (isNaN(num) || num <= 0) return;
-  // No bajar de -1
   const nuevoValor = Math.max(-1, (stockStorage[sku] || 0) - num);
   stockStorage[sku] = nuevoValor;
   guardarStocks();
@@ -419,9 +449,14 @@ async function agregarProductoNuevo(categoria) {
   }
   const result = await showCustomModal({
     title: "Nuevo producto",
-    subtitle: `Se añadirá al final de: ${categoria}`,
+    subtitle: `Se añadirá al final de: ${categoria} (SKU opcional)`,
     fields: [
-      { id: "sku", label: "SKU", placeholder: "BAS001", required: true },
+      {
+        id: "sku",
+        label: "SKU (opcional)",
+        placeholder: "Déjalo vacío para generar automático",
+        required: false, // <-- AHORA NO ES OBLIGATORIO
+      },
       {
         id: "nombre",
         label: "Nombre",
@@ -438,10 +473,16 @@ async function agregarProductoNuevo(categoria) {
     confirmText: "Agregar",
   });
   if (!result) return;
-  const { sku, nombre, imagen } = result;
-  if (productosData.some((p) => p.sku === sku)) {
-    toast("Ya existe un producto con ese SKU", "error");
-    return;
+  let { sku, nombre, imagen } = result;
+  // Si SKU está vacío, generarlo automáticamente
+  if (!sku) {
+    sku = generarSKU(nombre, productosData);
+  } else {
+    // Verificar que el SKU no exista
+    if (productosData.some((p) => p.sku === sku)) {
+      toast("Ya existe un producto con ese SKU", "error");
+      return;
+    }
   }
   const ultimoIdxCategoria = productosData.reduce(
     (last, p, i) => (p.categoria === categoria ? i : last),
@@ -458,7 +499,7 @@ async function agregarProductoNuevo(categoria) {
     await guardarProductosEnGist(productosData);
     renderizarProductos();
     actualizarConteosCategorias();
-    toast(`"${nombre}" agregado y guardado en GitHub`, "success");
+    toast(`"${nombre}" agregado (SKU: ${sku})`, "success");
   } catch (err) {
     toast(
       "Error al guardar en GitHub. Los cambios no son permanentes.",
@@ -566,9 +607,15 @@ async function eliminarProducto(sku, nombre) {
 async function agregarProductoTemporal() {
   const result = await showCustomModal({
     title: "Agregar producto temporal",
-    subtitle: "Este producto solo existirá en el conteo temporal",
+    subtitle:
+      "Este producto solo existirá en el conteo temporal (SKU opcional)",
     fields: [
-      { id: "sku", label: "SKU", placeholder: "TEMP001", required: true },
+      {
+        id: "sku",
+        label: "SKU (opcional)",
+        placeholder: "Déjalo vacío para generar automático",
+        required: false,
+      },
       {
         id: "nombre",
         label: "Nombre",
@@ -585,16 +632,20 @@ async function agregarProductoTemporal() {
     confirmText: "Agregar",
   });
   if (!result) return;
-  const { sku, nombre, imagen } = result;
-  if (productosTemporales.some((p) => p.sku === sku)) {
-    toast("Ya existe un producto temporal con ese SKU", "error");
-    return;
+  let { sku, nombre, imagen } = result;
+  if (!sku) {
+    sku = generarSKU(nombre, productosTemporales);
+  } else {
+    if (productosTemporales.some((p) => p.sku === sku)) {
+      toast("Ya existe un producto temporal con ese SKU", "error");
+      return;
+    }
   }
   const nuevoProducto = { sku, nombre, imagenUrl: imagen || "" };
   productosTemporales.push(nuevoProducto);
   guardarProductosTemporales();
   renderizarProductos();
-  toast(`"${nombre}" agregado al conteo temporal`, "success");
+  toast(`"${nombre}" agregado al conteo temporal (SKU: ${sku})`, "success");
 }
 
 async function editarProductoTemporal(sku, nombreActual, imagenActual) {
@@ -656,14 +707,15 @@ async function eliminarProductoTemporal(sku) {
 // ================================================================
 //  PARSEAR BLOQUE DE PRODUCTOS (compartido)
 // ================================================================
-function parsearBloqueProductos(texto) {
+function parsearBloqueProductos(texto, listaExistente) {
   const lineas = texto.split("\n");
   const productos = [];
   let actual = {};
   for (let linea of lineas) {
     const trim = linea.trim();
     if (trim === "") {
-      if (actual.nombre && actual.sku) {
+      if (actual.nombre && (actual.sku || true)) {
+        // si tiene nombre, podemos generar SKU después
         productos.push({ ...actual });
         actual = {};
       }
@@ -679,14 +731,21 @@ function parsearBloqueProductos(texto) {
     } else if (matchUrl) {
       actual.imagenUrl = matchUrl[1].trim();
     } else {
-      if (actual.nombre && actual.sku) {
+      if (actual.nombre && (actual.sku || true)) {
         productos.push({ ...actual });
         actual = {};
       }
     }
   }
-  if (actual.nombre && actual.sku) {
+  if (actual.nombre && (actual.sku || true)) {
     productos.push({ ...actual });
+  }
+  // Generar SKU para los que no tengan
+  const listaCompleta = [...listaExistente, ...productos];
+  for (let prod of productos) {
+    if (!prod.sku) {
+      prod.sku = generarSKU(prod.nombre, listaCompleta);
+    }
   }
   return productos;
 }
@@ -698,7 +757,7 @@ async function importarProductosTemporales() {
   const result = await showCustomModal({
     title: "Importar productos temporales",
     subtitle:
-      "Pega el bloque de productos con el formato:\n\nNombre: ...\nSKU: ...\nUrl img: ...\n\n(separados por líneas en blanco)",
+      "Pega el bloque de productos con el formato:\n\nNombre: ...\nSKU: ... (opcional)\nUrl img: ...\n\n(separados por líneas en blanco)",
     fields: [
       {
         id: "bloque",
@@ -712,10 +771,13 @@ async function importarProductosTemporales() {
   });
   if (!result) return;
 
-  const productosImportados = parsearBloqueProductos(result.bloque);
+  const productosImportados = parsearBloqueProductos(
+    result.bloque,
+    productosTemporales,
+  );
   if (productosImportados.length === 0) {
     toast(
-      "No se encontraron productos válidos en el texto. Asegúrate de usar el formato: Nombre: ... SKU: ... Url img: ...",
+      "No se encontraron productos válidos en el texto. Asegúrate de incluir al menos el Nombre.",
       "error",
     );
     return;
@@ -758,7 +820,7 @@ async function importarProductosPrincipales(categoria) {
 
   const result = await showCustomModal({
     title: "Agregar desde script",
-    subtitle: `Pega el bloque de productos con el formato:\n\nNombre: ...\nSKU: ...\nUrl img: ...\n\n(separados por líneas en blanco)\n\nSe asignarán a la categoría: ${categoria}`,
+    subtitle: `Pega el bloque de productos con el formato:\n\nNombre: ...\nSKU: ... (opcional)\nUrl img: ...\n\n(separados por líneas en blanco)\n\nSe asignarán a la categoría: ${categoria}`,
     fields: [
       {
         id: "bloque",
@@ -772,7 +834,10 @@ async function importarProductosPrincipales(categoria) {
   });
   if (!result) return;
 
-  const productosImportados = parsearBloqueProductos(result.bloque);
+  const productosImportados = parsearBloqueProductos(
+    result.bloque,
+    productosData,
+  );
   if (productosImportados.length === 0) {
     toast("No se encontraron productos válidos en el texto", "error");
     return;
@@ -1459,7 +1524,7 @@ async function resetearStocks() {
     danger: true,
   });
   if (!ok) return;
-  stockStorage = {}; // Esto reinicia todos los stocks a 0 (los elimina)
+  stockStorage = {};
   guardarStocks();
   renderizarProductos();
   toast("Stocks reiniciados a 0", "info");
