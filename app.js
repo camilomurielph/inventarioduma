@@ -1,5 +1,5 @@
 // ================================================================
-//  INVENTARIO DUMASHE — app.js (versión con importación desde script en ambos modos)
+//  INVENTARIO DUMASHE — app.js (stock mínimo -1)
 // ================================================================
 
 // ── Globals ──────────────────────────────────────────────────────
@@ -175,7 +175,9 @@ function restarStockTemporal(sku, cantidad) {
   if (!modoTemporal) return restarStock(sku, cantidad);
   const num = parseInt(cantidad, 10);
   if (isNaN(num) || num <= 0) return;
-  stockTemporal[sku] = Math.max(0, (stockTemporal[sku] || 0) - num);
+  // No bajar de -1
+  const nuevoValor = Math.max(-1, (stockTemporal[sku] || 0) - num);
+  stockTemporal[sku] = nuevoValor;
   guardarStocksTemporales();
   actualizarCardStock(sku, stockTemporal[sku]);
   toast(`−${num} · total: ${stockTemporal[sku]}`, "info");
@@ -368,7 +370,9 @@ function restarStock(sku, valor) {
   }
   const num = parseInt(valor, 10);
   if (isNaN(num) || num <= 0) return;
-  stockStorage[sku] = Math.max(0, (stockStorage[sku] || 0) - num);
+  // No bajar de -1
+  const nuevoValor = Math.max(-1, (stockStorage[sku] || 0) - num);
+  stockStorage[sku] = nuevoValor;
   guardarStocks();
   actualizarCardStock(sku, stockStorage[sku]);
   toast(`−${num} · total: ${stockStorage[sku]}`, "info");
@@ -381,7 +385,19 @@ function actualizarCardStock(sku, total) {
   if (!card) return;
   const hint = card.querySelector(".stock-hint");
   const input = card.querySelector(".stock-input");
-  if (hint) hint.textContent = total > 0 ? `Total: ${total}` : "";
+  if (hint) {
+    if (total === -1) {
+      hint.textContent = `⚠️ Agotado (${total})`;
+      hint.style.color = "var(--danger)";
+      hint.style.fontWeight = "700";
+    } else if (total > 0) {
+      hint.textContent = `Total: ${total}`;
+      hint.style.color = "var(--success)";
+      hint.style.fontWeight = "600";
+    } else {
+      hint.textContent = "";
+    }
+  }
   if (input) input.value = "";
   card.classList.remove("card-flash");
   void card.offsetWidth;
@@ -663,7 +679,6 @@ function parsearBloqueProductos(texto) {
     } else if (matchUrl) {
       actual.imagenUrl = matchUrl[1].trim();
     } else {
-      // Si no coincide con ningún patrón y ya tenemos producto, lo guardamos
       if (actual.nombre && actual.sku) {
         productos.push({ ...actual });
         actual = {};
@@ -874,13 +889,18 @@ function contarProductosPorCategoria(productos) {
 }
 
 // ================================================================
-//  RENDER (con botón "Agregar desde script" en modo normal)
+//  RENDER
 // ================================================================
 let sortableInstances = [];
 
 function buildProductCard(prod, extraStyle = "", role = "guest") {
-  const total =
-    obtenerStockActual(prod.sku) > 0 ? obtenerStockActual(prod.sku) : "";
+  const stockValue = obtenerStockActual(prod.sku);
+  let stockDisplay = "";
+  if (stockValue === -1) {
+    stockDisplay = `⚠️ Agotado (${stockValue})`;
+  } else if (stockValue > 0) {
+    stockDisplay = `Total: ${stockValue}`;
+  }
   const placeholder = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60'%3E%3Crect width='60' height='60' fill='%23222'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' dy='.3em' fill='%23555' font-size='20'%3E%3F%3C/text%3E%3C/svg%3E`;
   const actionButtons = `
     <div class="product-actions">
@@ -913,7 +933,7 @@ function buildProductCard(prod, extraStyle = "", role = "guest") {
         <div class="prod-info">
           <div class="prod-nombre">${escapeHtml(prod.nombre)}</div>
           <div class="prod-sku">${escapeHtml(prod.sku)}</div>
-          <div class="stock-hint">${total ? `Total: ${total}` : ""}</div>
+          <div class="stock-hint">${stockDisplay}</div>
         </div>
         ${actionButtons}
       </div>
@@ -1047,7 +1067,7 @@ async function reordenarCategoria(categoria, skusNuevoOrden) {
 }
 
 // ================================================================
-//  BIND EVENTOS DE CARDS (incluye botón "Agregar desde script")
+//  BIND EVENTOS DE CARDS
 // ================================================================
 function bindCardEvents() {
   document.querySelectorAll(".stock-btn.sumar").forEach((btn) =>
@@ -1091,7 +1111,6 @@ function bindCardEvents() {
     }),
   );
 
-  // Botones de agregar producto en modo normal (final de categoría)
   document.querySelectorAll(".btn-add-prod").forEach((btn) =>
     btn.addEventListener("click", (e) => {
       if (modoTemporal) {
@@ -1102,7 +1121,6 @@ function bindCardEvents() {
     }),
   );
 
-  // Botones de "Agregar desde script" (modo normal)
   document.querySelectorAll(".btn-import-script").forEach((btn) =>
     btn.addEventListener("click", (e) => {
       const categoria = e.currentTarget.dataset.categoria;
@@ -1253,20 +1271,23 @@ async function sendFileToTelegram(blob, filename, caption = "") {
 }
 
 // ================================================================
-//  EXPORTAR PDF
+//  EXPORTAR PDF (incluye productos con stock -1 y positivos)
 // ================================================================
 async function generarPDF(skuNombreCantidad = true) {
   const { jsPDF } = window.jspdf;
   const productos = obtenerProductosActuales();
   const conStock = productos
-    .filter((p) => obtenerStockActual(p.sku) > 0)
+    .filter((p) => {
+      const stock = obtenerStockActual(p.sku);
+      return stock > 0 || stock === -1;
+    })
     .map((p) => ({
       sku: p.sku,
       nombre: p.nombre,
       cantidad: obtenerStockActual(p.sku),
     }));
   if (!conStock.length) {
-    toast("No hay productos con stock > 0", "warning");
+    toast("No hay productos con stock > 0 o -1", "warning");
     return null;
   }
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
@@ -1322,7 +1343,7 @@ async function enviarPDFaTelegram(completo = true) {
 }
 
 // ================================================================
-//  EXPORTAR MARKDOWN
+//  EXPORTAR MARKDOWN (incluye productos con stock -1 y positivos)
 // ================================================================
 function exportarMarkdown() {
   const productos = obtenerProductosActuales();
@@ -1331,7 +1352,8 @@ function exportarMarkdown() {
   if (modoTemporal) {
     md += "| Stock | Item | SKU |\n|-------|------|-----|\n";
     productos.forEach((p) => {
-      const stock = obtenerStockActual(p.sku) || "";
+      const stock = obtenerStockActual(p.sku);
+      if (stock === 0) return;
       md += `| ${stock} | ${p.nombre} | ${p.sku} |\n`;
     });
   } else {
@@ -1341,7 +1363,8 @@ function exportarMarkdown() {
       productos
         .filter((p) => p.categoria === cat)
         .forEach((p) => {
-          const stock = obtenerStockActual(p.sku) || "";
+          const stock = obtenerStockActual(p.sku);
+          if (stock === 0) return;
           const imgTag = p.imagenUrl
             ? `<img src="${p.imagenUrl}" width="200">`
             : "";
@@ -1436,10 +1459,10 @@ async function resetearStocks() {
     danger: true,
   });
   if (!ok) return;
-  stockStorage = {};
+  stockStorage = {}; // Esto reinicia todos los stocks a 0 (los elimina)
   guardarStocks();
   renderizarProductos();
-  toast("Stocks reiniciados", "info");
+  toast("Stocks reiniciados a 0", "info");
 }
 
 // ================================================================
