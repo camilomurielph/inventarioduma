@@ -50,6 +50,7 @@ body {
     color: var(--text-primary);
     min-height: 100vh;
     padding: 16px;
+    padding-top: max(env(safe-area-inset-top, 16px), 16px);
     padding-bottom: max(env(safe-area-inset-bottom, 24px), 24px);
     font-size: 15px;
     line-height: 1.5;
@@ -511,7 +512,7 @@ button:active {
 /* ─── FILTER / CATEGORIES (sticky dropdown) ──────────────── */
 .sticky-categories {
     position: sticky;
-    top: 8px;
+    top: max(env(safe-area-inset-top, 8px), 8px);
     z-index: 50;
     background: var(--bg-secondary);
     backdrop-filter: blur(8px);
