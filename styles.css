@@ -508,7 +508,18 @@ button:active {
     color: var(--accent);
 }
 
-/* ─── FILTER / CATEGORIES ────────────────────────────────── */
+/* ─── FILTER / CATEGORIES (sticky dropdown) ──────────────── */
+.sticky-categories {
+    position: sticky;
+    top: 8px;
+    z-index: 50;
+    background: var(--bg-secondary);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    padding: 8px 16px;
+    border: 1px solid var(--border);
+}
+
 .filter-categories {
     background: var(--bg-secondary);
     border-radius: var(--radius-lg);
@@ -521,7 +532,8 @@ button:active {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 6px;
+    margin-bottom: 0;
+    gap: 12px;
 }
 
 .filter-label {
@@ -530,80 +542,31 @@ button:active {
     text-transform: uppercase;
     letter-spacing: 0.1em;
     color: var(--text-muted);
-}
-
-/* ─── NUEVO: CHECKLIST CON SCROLL HORIZONTAL ────────────── */
-.checklist {
-    display: flex;
-    flex-wrap: nowrap;
-    gap: 6px;
-    overflow-x: auto;
-    overflow-y: hidden;
-    padding: 4px 0 12px 0;
-    scrollbar-width: thin;
-    -webkit-overflow-scrolling: touch;
-}
-.checklist::-webkit-scrollbar {
-    height: 4px;
-}
-.checklist::-webkit-scrollbar-track {
-    background: var(--bg-secondary);
-}
-.checklist::-webkit-scrollbar-thumb {
-    background: var(--text-muted);
-    border-radius: 10px;
-}
-
-.cat-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    background: var(--bg-card);
-    padding: 5px 13px;
-    border-radius: var(--radius-pill);
-    cursor: pointer;
-    font-size: 0.82rem;
-    font-weight: 500;
-    border: 1px solid var(--border) !important;
-    transition:
-        background var(--t),
-        border-color var(--t),
-        color var(--t),
-        transform var(--t);
-    color: var(--text-secondary);
-    user-select: none;
-    box-shadow: none !important;
-    white-space: nowrap;
     flex-shrink: 0;
 }
-.cat-pill:hover {
-    background: var(--accent-subtle);
-    border-color: rgba(214, 48, 152, 0.4) !important;
-    color: var(--accent);
-    transform: translateY(-1px) !important;
-}
-.cat-pill:active {
-    transform: scale(0.97) !important;
-}
 
-.cat-name {
-    line-height: 1;
+.categoria-dropdown {
+    flex: 1;
+    background: var(--bg-card);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 6px 10px;
+    font-size: 0.85rem;
+    font-family: inherit;
+    outline: none;
+    transition: border-color var(--t), box-shadow var(--t);
+    cursor: pointer;
+    max-width: 280px;
+    margin-left: auto;
 }
-
-.cat-count {
-    background: rgba(255, 255, 255, 0.07);
-    color: var(--text-muted);
-    font-size: 0.7rem;
-    font-weight: 600;
-    padding: 1px 6px;
-    border-radius: var(--radius-pill);
-    min-width: 20px;
-    text-align: center;
-    font-variant-numeric: tabular-nums;
+.categoria-dropdown:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-glow);
 }
-.cat-pill.active .cat-count {
-    background: rgba(214, 48, 152, 0.2);
-    color: var(--accent);
+.categoria-dropdown option {
+    background: var(--bg-card);
+    color: var(--text-primary);
 }
 
 /* ─── CATEGORY TITLE ─────────────────────────────────────── */
@@ -1073,6 +1036,16 @@ footer {
 
     .modal-card {
         padding: 28px 22px;
+    }
+
+    .categoria-dropdown {
+        max-width: 150px;
+        font-size: 0.8rem;
+        padding: 4px 6px;
+    }
+    .filter-header {
+        flex-wrap: wrap;
+        gap: 6px;
     }
 }
 
