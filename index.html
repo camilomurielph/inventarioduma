@@ -21,7 +21,7 @@
             content="black-translucent"
         />
 
-        <!-- Favicon general (opcional pero recomendado) -->
+        <!-- Favicon general -->
         <link
             rel="icon"
             href="https://res.cloudinary.com/ddh8chtup/image/upload/v1782365935/icono_inventarios_fisoqa.png"
@@ -155,17 +155,23 @@
                                     <i data-lucide="code"></i> Enviar lista de
                                     productos
                                 </button>
+                                <button id="enviarAgotadosTelegramBtn">
+                                    <i data-lucide="alert-triangle"></i> Reporte
+                                    agotados
+                                </button>
                             </div>
                         </details>
                     </div>
                 </header>
 
-                <!-- CATEGORÍAS (se oculta en modo temporal) -->
-                <div id="categoriasSection" class="filter-categories">
+                <!-- ÍNDICE DE CATEGORÍAS (sticky dropdown) -->
+                <div id="categoriasSection" class="filter-categories sticky-categories">
                     <div class="filter-header">
                         <span class="filter-label">Categorías</span>
+                        <select id="categoriaDropdown" class="categoria-dropdown">
+                            <option value="">Ir a categoría...</option>
+                        </select>
                     </div>
-                    <div id="categoriasChecklist" class="checklist"></div>
                 </div>
 
                 <!-- BOTONES Y ÁREA DE IMPORTACIÓN TEMPORAL -->
@@ -216,6 +222,13 @@
                         id="hiddenProductsContainer"
                         style="display: none; margin-top: 12px"
                     ></div>
+                </div>
+
+                <!-- Botón para crear categoría -->
+                <div style="margin-top: 24px; text-align: center;">
+                    <button id="crearCategoriaBtn" class="btn btn-outline" style="width: auto; min-width: 200px;">
+                        <i data-lucide="plus-circle"></i> Crear nueva categoría
+                    </button>
                 </div>
 
                 <footer>Los cambios se guardan automáticamente.</footer>
