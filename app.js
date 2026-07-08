@@ -253,7 +253,8 @@ function showCustomModal({
       setTimeout(() => firstInput.focus(), 80);
       fieldsEl.querySelectorAll("input, textarea").forEach((inp) => {
         inp.addEventListener("keydown", (e) => {
-          if (e.key === "Enter" && inp.tagName !== "TEXTAREA") confirmBtn.click();
+          if (e.key === "Enter" && inp.tagName !== "TEXTAREA")
+            confirmBtn.click();
           if (e.key === "Escape") cancelBtn.click();
         });
       });
@@ -595,11 +596,27 @@ async function eliminarProducto(sku, nombre) {
 async function agregarProductoTemporal() {
   const result = await showCustomModal({
     title: "Agregar producto temporal",
-    subtitle: "Este producto solo existirá en el conteo temporal (SKU opcional)",
+    subtitle:
+      "Este producto solo existirá en el conteo temporal (SKU opcional)",
     fields: [
-      { id: "sku", label: "SKU (opcional)", placeholder: "Déjalo vacío para generar automático", required: false },
-      { id: "nombre", label: "Nombre", placeholder: "Nombre del producto", required: true },
-      { id: "imagen", label: "URL Imagen (opcional)", placeholder: "https://...", required: false },
+      {
+        id: "sku",
+        label: "SKU (opcional)",
+        placeholder: "Déjalo vacío para generar automático",
+        required: false,
+      },
+      {
+        id: "nombre",
+        label: "Nombre",
+        placeholder: "Nombre del producto",
+        required: true,
+      },
+      {
+        id: "imagen",
+        label: "URL Imagen (opcional)",
+        placeholder: "https://...",
+        required: false,
+      },
     ],
     confirmText: "Agregar",
   });
@@ -623,7 +640,12 @@ async function editarProductoTemporal(sku, nombreActual, imagenActual) {
     fields: [
       { id: "nombre", label: "Nombre", value: nombreActual, required: true },
       { id: "sku", label: "SKU", value: sku, required: true },
-      { id: "imagen", label: "URL Imagen", value: imagenActual, required: false },
+      {
+        id: "imagen",
+        label: "URL Imagen",
+        value: imagenActual,
+        required: false,
+      },
     ],
     confirmText: "Guardar",
   });
@@ -669,7 +691,7 @@ async function eliminarProductoTemporal(sku) {
 }
 
 // ================================================================
-//  CREAR NUEVA CATEGORÍA
+//  CREAR NUEVA CATEGORÍA (con producto base)
 // ================================================================
 async function crearNuevaCategoria() {
   if (currentUserRole !== "admin") {
@@ -682,9 +704,15 @@ async function crearNuevaCategoria() {
   }
   const result = await showCustomModal({
     title: "Nueva categoría",
-    subtitle: "Ingresa el nombre de la categoría",
+    subtitle:
+      "Ingresa el nombre de la categoría. Se creará un producto base automáticamente.",
     fields: [
-      { id: "nombre", label: "Nombre de la categoría", placeholder: "Ej. Cuidado facial", required: true },
+      {
+        id: "nombre",
+        label: "Nombre de la categoría",
+        placeholder: "Ej. Cuidado facial",
+        required: true,
+      },
     ],
     confirmText: "Crear",
   });
@@ -695,10 +723,40 @@ async function crearNuevaCategoria() {
     return;
   }
   categoriasSet.add(nombre);
-  // No guardamos en Gist aún (no hay productos en esa categoría). Se guardará al agregar el primer producto.
-  construirIndiceCategorias();
-  renderizarProductos();
-  toast(`Categoría "${nombre}" creada (añade productos para guardarla)`, "success");
+
+  // Crear producto base en la nueva categoría
+  const productoBase = {
+    sku: "PBASE001",
+    nombre: "Producto base",
+    categoria: nombre,
+    imagenUrl: "",
+  };
+  // Verificar que el SKU no exista ya (por si acaso)
+  if (productosData.some((p) => p.sku === productoBase.sku)) {
+    // Si existe, generamos un SKU alternativo
+    productoBase.sku = generarSKU("Producto base", productosData);
+  }
+  productosData.push(productoBase);
+
+  // Guardar en el Gist
+  try {
+    await guardarProductosEnGist(productosData);
+    construirIndiceCategorias();
+    renderizarProductos();
+    actualizarConteosCategorias();
+    toast(
+      `Categoría "${nombre}" creada con producto base (SKU: ${productoBase.sku})`,
+      "success",
+    );
+  } catch (err) {
+    toast(
+      "Error al guardar en GitHub. La categoría se creó localmente pero no se guardó.",
+      "error",
+    );
+    // Aún así, mostramos la categoría localmente
+    construirIndiceCategorias();
+    renderizarProductos();
+  }
 }
 
 // ================================================================
@@ -747,7 +805,8 @@ function parsearBloqueProductos(texto, listaExistente) {
 async function importarProductosTemporales() {
   const result = await showCustomModal({
     title: "Importar productos temporales",
-    subtitle: "Pega el bloque de productos con el formato:\n\nNombre: ...\nSKU: ... (opcional)\nUrl img: ...\n\n(separados por líneas en blanco)",
+    subtitle:
+      "Pega el bloque de productos con el formato:\n\nNombre: ...\nSKU: ... (opcional)\nUrl img: ...\n\n(separados por líneas en blanco)",
     fields: [
       {
         id: "bloque",
@@ -760,9 +819,15 @@ async function importarProductosTemporales() {
     confirmText: "Importar",
   });
   if (!result) return;
-  const productosImportados = parsearBloqueProductos(result.bloque, productosTemporales);
+  const productosImportados = parsearBloqueProductos(
+    result.bloque,
+    productosTemporales,
+  );
   if (productosImportados.length === 0) {
-    toast("No se encontraron productos válidos en el texto. Asegúrate de incluir al menos el Nombre.", "error");
+    toast(
+      "No se encontraron productos válidos en el texto. Asegúrate de incluir al menos el Nombre.",
+      "error",
+    );
     return;
   }
   let agregados = 0;
@@ -771,7 +836,11 @@ async function importarProductosTemporales() {
       toast(`SKU "${prod.sku}" ya existe, se omite`, "warning");
       continue;
     }
-    productosTemporales.push({ sku: prod.sku, nombre: prod.nombre, imagenUrl: prod.imagenUrl || "" });
+    productosTemporales.push({
+      sku: prod.sku,
+      nombre: prod.nombre,
+      imagenUrl: prod.imagenUrl || "",
+    });
     agregados++;
   }
   if (agregados > 0) {
@@ -779,7 +848,10 @@ async function importarProductosTemporales() {
     renderizarProductos();
     toast(`Se importaron ${agregados} productos temporales`, "success");
   } else {
-    toast("No se importó ningún producto nuevo (todos los SKU ya existían)", "info");
+    toast(
+      "No se importó ningún producto nuevo (todos los SKU ya existían)",
+      "info",
+    );
   }
 }
 
@@ -806,7 +878,10 @@ async function importarProductosPrincipales(categoria) {
     confirmText: "Agregar",
   });
   if (!result) return;
-  const productosImportados = parsearBloqueProductos(result.bloque, productosData);
+  const productosImportados = parsearBloqueProductos(
+    result.bloque,
+    productosData,
+  );
   if (productosImportados.length === 0) {
     toast("No se encontraron productos válidos en el texto", "error");
     return;
@@ -832,9 +907,15 @@ async function importarProductosPrincipales(categoria) {
       await guardarProductosEnGist(productosData);
       renderizarProductos();
       actualizarConteosCategorias();
-      toast(`Se agregaron ${agregados} productos a la categoría ${categoria}`, "success");
+      toast(
+        `Se agregaron ${agregados} productos a la categoría ${categoria}`,
+        "success",
+      );
     } catch (err) {
-      toast("Error al guardar en GitHub. Los cambios no son permanentes.", "error");
+      toast(
+        "Error al guardar en GitHub. Los cambios no son permanentes.",
+        "error",
+      );
     }
   } else {
     toast("No se agregó ningún producto nuevo", "info");
@@ -857,7 +938,12 @@ function copiarProductosTemporales() {
   }
   navigator.clipboard
     .writeText(texto)
-    .then(() => toast(`${productosTemporales.length} productos copiados al portapapeles`, "success"))
+    .then(() =>
+      toast(
+        `${productosTemporales.length} productos copiados al portapapeles`,
+        "success",
+      ),
+    )
     .catch(() => toast("Error al copiar", "error"));
 }
 
@@ -901,7 +987,7 @@ function scrollToCategoria(anchorId) {
 }
 
 // Evento del dropdown
-document.addEventListener("change", function(e) {
+document.addEventListener("change", function (e) {
   if (e.target && e.target.id === "categoriaDropdown") {
     const val = e.target.value;
     if (val) scrollToCategoria(val);
@@ -989,7 +1075,6 @@ function renderizarProductos() {
   const role = currentUserRole || "guest";
   const productos = obtenerProductosActuales();
 
-  // Mostrar/ocultar sección de categorías y acciones temporales
   if (modoTemporal) {
     categoriasSection.style.display = "none";
     temporalActions.style.display = "block";
@@ -1001,7 +1086,8 @@ function renderizarProductos() {
   let html = "";
   if (modoTemporal) {
     if (productos.length === 0) {
-      html = '<div class="empty">No hay productos en el conteo temporal. Usa los botones de arriba para agregar.</div>';
+      html =
+        '<div class="empty">No hay productos en el conteo temporal. Usa los botones de arriba para agregar.</div>';
     } else {
       html = productos.map((p) => buildProductCard(p, "", role)).join("");
     }
@@ -1044,7 +1130,8 @@ function renderizarProductos() {
     }
   }
 
-  productosContainer.innerHTML = html || '<div class="empty">Sin productos.</div>';
+  productosContainer.innerHTML =
+    html || '<div class="empty">Sin productos.</div>';
 
   if (!modoTemporal) {
     productosContainer.querySelectorAll(".sortable-list").forEach((list) => {
@@ -1197,7 +1284,10 @@ function iniciarModoTemporal() {
   renderizarProductos();
   construirIndiceCategorias();
   actualizarUImodoTemporal();
-  toast(`Modo temporal activo (${productosTemporales.length} productos)`, "success");
+  toast(
+    `Modo temporal activo (${productosTemporales.length} productos)`,
+    "success",
+  );
 }
 
 function salirModoTemporal() {
@@ -1321,7 +1411,9 @@ function generarPDFBase(productosFiltrados, titulo, incluirImagenes = true) {
       doc.text("*** MODO TEMPORAL ***", 14, 32);
       doc.setTextColor(0);
     }
-    const head = incluirImagenes ? [["SKU", "Nombre", "Cantidad"]] : [["SKU", "Cantidad"]];
+    const head = incluirImagenes
+      ? [["SKU", "Nombre", "Cantidad"]]
+      : [["SKU", "Cantidad"]];
     const body = incluirImagenes
       ? productosFiltrados.map((p) => [p.sku, p.nombre, p.cantidad])
       : productosFiltrados.map((p) => [p.sku, p.cantidad]);
@@ -1437,7 +1529,9 @@ function exportarMarkdown() {
         .forEach((p) => {
           const stock = obtenerStockActual(p.sku);
           if (stock === 0) return;
-          const imgTag = p.imagenUrl ? `<img src="${p.imagenUrl}" width="200">` : "";
+          const imgTag = p.imagenUrl
+            ? `<img src="${p.imagenUrl}" width="200">`
+            : "";
           md += `| ${imgTag} | ${stock} | ${p.nombre} | ${p.sku} |\n`;
         });
       md += "\n";
@@ -1511,7 +1605,10 @@ function copiarProductosJS() {
 // ================================================================
 async function resetearStocks() {
   if (modoTemporal) {
-    toast("En modo temporal no se pueden resetear los stocks principales", "error");
+    toast(
+      "En modo temporal no se pueden resetear los stocks principales",
+      "error",
+    );
     return;
   }
   if (currentUserRole !== "admin") {
