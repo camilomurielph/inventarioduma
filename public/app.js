@@ -1,5 +1,5 @@
 // ================================================================
-//  INVENTARIO DUMASHE — app.js (con reporte agotados, crear categoría y dropdown)
+//  INVENTARIO DUMASHE — app.js (versión API SQLite)
 // ================================================================
 
 // ── Globals ──────────────────────────────────────────────────────
@@ -21,10 +21,8 @@ const STORAGE_TEMP_STOCK = "inventarioTemporalStocks";
 const TELEGRAM_BOT_TOKEN = "8734858031:AAHFZreCoRJtCAgPPWeoawoPzuxiMZXyjQU";
 const TELEGRAM_CHAT_ID = "898495705";
 
-// ── Cloudflare Worker config ──────────────────────────────────────
-const WORKER_URL =
-  "https://inventario-dumashe-proxy.camilomurielph.workers.dev/";
-const APP_SECRET = "Api1330clave";
+// ── API config ──────────────────────────────────────────────────
+const API_BASE_URL = '/api';  // Relativo al mismo dominio
 
 // ── DOM refs ──────────────────────────────────────────────────────
 const loginModal = document.getElementById("loginModal");
@@ -99,43 +97,60 @@ function generarSKU(nombre, listaProductos, skuBase = null) {
 }
 
 // ================================================================
-//  CARGAR Y GUARDAR PRODUCTOS PRINCIPALES (vía Worker)
+//  CARGAR Y GUARDAR PRODUCTOS (vía API)
 // ================================================================
-async function cargarProductosDesdeGist() {
+async function cargarProductosDesdeAPI() {
   try {
-    const respuesta = await fetch(WORKER_URL, {
-      method: "GET",
-      headers: { "Content-Type": "application/json" },
-    });
+    const respuesta = await fetch(`${API_BASE_URL}/productos`);
     if (!respuesta.ok) throw new Error(`HTTP ${respuesta.status}`);
     const data = await respuesta.json();
-    return data;
+    // data: [{ sku, nombre, categoria, imagenUrl, stock }]
+    const productos = data.map(p => ({
+      sku: p.sku,
+      nombre: p.nombre,
+      categoria: p.categoria,
+      imagenUrl: p.imagenUrl || ''
+    }));
+    // Actualizar stockStorage con los stocks recibidos
+    data.forEach(p => {
+      if (p.stock !== 0) {
+        stockStorage[p.sku] = p.stock;
+      } else {
+        delete stockStorage[p.sku];
+      }
+    });
+    guardarStocks();
+    return productos;
   } catch (error) {
-    console.error("Error cargando desde Worker:", error);
+    console.error('Error cargando desde API:', error);
     if (window.productos && window.productos.length) {
-      console.warn("Usando productos.js local como respaldo");
+      console.warn('Usando productos.js local como respaldo');
       return window.productos;
     }
     throw error;
   }
 }
 
-async function guardarProductosEnGist(productosArray) {
+async function guardarProductosEnAPI(productosArray) {
   if (modoTemporal) {
     toast(
       "En modo temporal no se guardan cambios en el inventario principal",
-      "info",
+      "info"
     );
     return true;
   }
+  const payload = productosArray.map(p => ({
+    sku: p.sku,
+    nombre: p.nombre,
+    categoria: p.categoria,
+    imagenUrl: p.imagenUrl || '',
+    stock: stockStorage[p.sku] || 0
+  }));
   try {
-    const respuesta = await fetch(WORKER_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Auth-Key": APP_SECRET,
-      },
-      body: JSON.stringify({ content: productosArray }),
+    const respuesta = await fetch(`${API_BASE_URL}/productos`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
     });
     if (!respuesta.ok) {
       const errorData = await respuesta.json();
@@ -143,7 +158,7 @@ async function guardarProductosEnGist(productosArray) {
     }
     return true;
   } catch (error) {
-    console.error("Error guardando a través del Worker:", error);
+    console.error('Error guardando en API:', error);
     throw error;
   }
 }
@@ -485,13 +500,13 @@ async function agregarProductoNuevo(categoria) {
   }
   if (!categoriasSet.has(categoria)) categoriasSet.add(categoria);
   try {
-    await guardarProductosEnGist(productosData);
+    await guardarProductosEnAPI(productosData);
     renderizarProductos();
     actualizarConteosCategorias();
     toast(`"${nombre}" agregado (SKU: ${sku})`, "success");
   } catch (err) {
     toast(
-      "Error al guardar en GitHub. Los cambios no son permanentes.",
+      "Error al guardar en la base de datos. Los cambios no son permanentes.",
       "error",
     );
   }
@@ -543,12 +558,12 @@ async function editarProducto(sku, nombreActual, imagenActual) {
     guardarStocks();
   }
   try {
-    await guardarProductosEnGist(productosData);
+    await guardarProductosEnAPI(productosData);
     renderizarProductos();
-    toast(`"${nuevoSku}" actualizado y guardado en GitHub`, "success");
+    toast(`"${nuevoSku}" actualizado y guardado en la base de datos`, "success");
   } catch (err) {
     toast(
-      "Error al guardar en GitHub. Los cambios no son permanentes.",
+      "Error al guardar en la base de datos. Los cambios no son permanentes.",
       "error",
     );
   }
@@ -577,13 +592,13 @@ async function eliminarProducto(sku, nombre) {
     delete stockStorage[sku];
     guardarStocks();
     try {
-      await guardarProductosEnGist(productosData);
+      await guardarProductosEnAPI(productosData);
       renderizarProductos();
       actualizarConteosCategorias();
-      toast(`"${nombre}" eliminado del inventario y de GitHub`, "warning");
+      toast(`"${nombre}" eliminado del inventario y de la base de datos`, "warning");
     } catch (err) {
       toast(
-        "Error al guardar en GitHub. Los cambios no son permanentes.",
+        "Error al guardar en la base de datos. Los cambios no son permanentes.",
         "error",
       );
     }
@@ -591,7 +606,7 @@ async function eliminarProducto(sku, nombre) {
 }
 
 // ================================================================
-//  CRUD PRODUCTOS TEMPORALES
+//  CRUD PRODUCTOS TEMPORALES (sin cambios)
 // ================================================================
 async function agregarProductoTemporal() {
   const result = await showCustomModal({
@@ -691,7 +706,7 @@ async function eliminarProductoTemporal(sku) {
 }
 
 // ================================================================
-//  CREAR NUEVA CATEGORÍA (con producto base)
+//  CREAR NUEVA CATEGORÍA (con producto base) - usando API
 // ================================================================
 async function crearNuevaCategoria() {
   if (currentUserRole !== "admin") {
@@ -724,23 +739,19 @@ async function crearNuevaCategoria() {
   }
   categoriasSet.add(nombre);
 
-  // Crear producto base en la nueva categoría
   const productoBase = {
     sku: "PBASE001",
     nombre: "Producto base",
     categoria: nombre,
     imagenUrl: "",
   };
-  // Verificar que el SKU no exista ya (por si acaso)
   if (productosData.some((p) => p.sku === productoBase.sku)) {
-    // Si existe, generamos un SKU alternativo
     productoBase.sku = generarSKU("Producto base", productosData);
   }
   productosData.push(productoBase);
 
-  // Guardar en el Gist
   try {
-    await guardarProductosEnGist(productosData);
+    await guardarProductosEnAPI(productosData);
     construirIndiceCategorias();
     renderizarProductos();
     actualizarConteosCategorias();
@@ -750,10 +761,9 @@ async function crearNuevaCategoria() {
     );
   } catch (err) {
     toast(
-      "Error al guardar en GitHub. La categoría se creó localmente pero no se guardó.",
+      "Error al guardar en la base de datos. La categoría se creó localmente pero no se guardó.",
       "error",
     );
-    // Aún así, mostramos la categoría localmente
     construirIndiceCategorias();
     renderizarProductos();
   }
@@ -904,7 +914,7 @@ async function importarProductosPrincipales(categoria) {
   }
   if (agregados > 0) {
     try {
-      await guardarProductosEnGist(productosData);
+      await guardarProductosEnAPI(productosData);
       renderizarProductos();
       actualizarConteosCategorias();
       toast(
@@ -913,7 +923,7 @@ async function importarProductosPrincipales(categoria) {
       );
     } catch (err) {
       toast(
-        "Error al guardar en GitHub. Los cambios no son permanentes.",
+        "Error al guardar en la base de datos. Los cambios no son permanentes.",
         "error",
       );
     }
@@ -966,7 +976,6 @@ function construirIndiceCategorias() {
     html += `<option value="${anchorId}">${escapeHtml(cat)}</option>`;
   }
   dropdown.innerHTML = html;
-  // Restaurar selección si hay un valor guardado
   if (dropdown.dataset.selected) {
     dropdown.value = dropdown.dataset.selected;
   }
@@ -980,7 +989,6 @@ function scrollToCategoria(anchorId) {
   const el = document.getElementById(anchorId);
   if (el) {
     el.scrollIntoView({ behavior: "smooth", block: "start" });
-    // Guardar selección en el dropdown
     const dropdown = document.getElementById("categoriaDropdown");
     if (dropdown) dropdown.dataset.selected = anchorId;
   }
@@ -1181,10 +1189,10 @@ async function reordenarCategoria(categoria, skusNuevoOrden) {
     productosData[idx] = reordenados[i];
   });
   try {
-    await guardarProductosEnGist(productosData);
-    toast("Orden guardado en GitHub", "info");
+    await guardarProductosEnAPI(productosData);
+    toast("Orden guardado en la base de datos", "info");
   } catch (err) {
-    toast("Error al guardar el orden en GitHub", "error");
+    toast("Error al guardar el orden en la base de datos", "error");
   }
 }
 
@@ -1269,7 +1277,6 @@ function bindCardEvents() {
       ),
     );
 }
-
 // ================================================================
 //  MODO TEMPORAL
 // ================================================================
@@ -1645,11 +1652,11 @@ function ajustarUIporRol() {
 }
 
 // ================================================================
-//  INIT
+//  INIT (carga desde API)
 // ================================================================
 async function initApp() {
   try {
-    const productosCargados = await cargarProductosDesdeGist();
+    const productosCargados = await cargarProductosDesdeAPI();
     productosData = productosCargados;
     categoriasSet.clear();
     productosData.forEach((p) => categoriasSet.add(p.categoria));
@@ -1658,10 +1665,10 @@ async function initApp() {
     renderizarProductos();
     ajustarUIporRol();
     actualizarUImodoTemporal();
-    toast("Datos cargados desde GitHub (vía Worker)", "success");
+    toast("Datos cargados desde la base de datos", "success");
   } catch (error) {
     toast(
-      "Error al cargar productos desde GitHub. Usando versión local.",
+      "Error al cargar productos desde la base de datos. Usando versión local.",
       "error",
     );
     if (window.productos && window.productos.length) {
