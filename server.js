@@ -12,7 +12,7 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(bodyParser.json({ limit: '10mb' }));
 
-// Conectar a SQLite (la base de datos se crea en /data/inventario.db)
+// Conectar a SQLite
 const DB_PATH = process.env.DB_PATH || './data/inventario.db';
 const dbDir = path.dirname(DB_PATH);
 if (!fs.existsSync(dbDir)) fs.mkdirSync(dbDir, { recursive: true });
@@ -30,13 +30,15 @@ db.serialize(() => {
   `);
   db.run(`
     CREATE TABLE IF NOT EXISTS stocks (
-      sku TEXT PRIMARY KEY,
+      sku TEXT NOT NULL,
+      usuario TEXT NOT NULL,
       cantidad INTEGER DEFAULT 0,
+      PRIMARY KEY (sku, usuario),
       FOREIGN KEY (sku) REFERENCES productos(sku) ON DELETE CASCADE
     )
   `);
 
-  // Migración inicial: si la tabla productos está vacía y existe productos_data.json, cargarlo
+  // Migración inicial desde productos_data.json
   db.get('SELECT COUNT(*) as count FROM productos', (err, row) => {
     if (err) return console.error(err);
     if (row.count === 0) {
@@ -67,17 +69,12 @@ db.serialize(() => {
 });
 
 // ================================================================
-//  API ENDPOINTS
+//  API PRODUCTOS
 // ================================================================
 
-// GET /api/productos → devuelve todos los productos con stock
+// GET /api/productos → devuelve todos los productos (sin stock)
 app.get('/api/productos', (req, res) => {
-  const query = `
-    SELECT p.sku, p.nombre, p.categoria, p.imagenUrl, IFNULL(s.cantidad, 0) as stock
-    FROM productos p
-    LEFT JOIN stocks s ON p.sku = s.sku
-  `;
-  db.all(query, (err, rows) => {
+  db.all('SELECT sku, nombre, categoria, imagenUrl FROM productos', (err, rows) => {
     if (err) {
       console.error(err);
       return res.status(500).json({ error: 'Error al obtener productos' });
@@ -103,13 +100,6 @@ app.post('/api/productos', (req, res) => {
         [p.sku, p.nombre, p.categoria, p.imagenUrl || ''],
         (err) => { if (err) { console.error(err); error = true; } }
       );
-      if (p.stock !== undefined) {
-        db.run(
-          `INSERT OR REPLACE INTO stocks (sku, cantidad) VALUES (?, ?)`,
-          [p.sku, p.stock],
-          (err) => { if (err) { console.error(err); error = true; } }
-        );
-      }
     }
     if (error) {
       db.run('ROLLBACK');
@@ -121,33 +111,78 @@ app.post('/api/productos', (req, res) => {
   });
 });
 
-// POST /api/productos/:sku/stock → actualizar stock individual
-app.post('/api/productos/:sku/stock', (req, res) => {
+// DELETE /api/productos/:sku → eliminar producto y sus stocks
+app.delete('/api/productos/:sku', (req, res) => {
   const { sku } = req.params;
-  const { cantidad } = req.body;
-  if (typeof cantidad !== 'number') {
-    return res.status(400).json({ error: 'La cantidad debe ser un número' });
-  }
-  db.run(
-    `INSERT OR REPLACE INTO stocks (sku, cantidad) VALUES (?, ?)`,
-    [sku, cantidad],
-    (err) => {
+  db.serialize(() => {
+    db.run('DELETE FROM stocks WHERE sku = ?', [sku]);
+    db.run('DELETE FROM productos WHERE sku = ?', [sku], (err) => {
       if (err) {
         console.error(err);
-        return res.status(500).json({ error: 'Error al actualizar stock' });
+        return res.status(500).json({ error: 'Error al eliminar producto' });
       }
       res.json({ success: true });
+    });
+  });
+});
+
+// ================================================================
+//  API STOCKS POR USUARIO
+// ================================================================
+
+// GET /api/stocks/:usuario → devuelve { sku: cantidad }
+app.get('/api/stocks/:usuario', (req, res) => {
+  const { usuario } = req.params;
+  db.all(
+    'SELECT sku, cantidad FROM stocks WHERE usuario = ?',
+    [usuario],
+    (err, rows) => {
+      if (err) {
+        console.error(err);
+        return res.status(500).json({ error: 'Error al obtener stocks' });
+      }
+      const stock = {};
+      rows.forEach(r => { stock[r.sku] = r.cantidad; });
+      res.json(stock);
     }
   );
 });
 
-// DELETE /api/productos/:sku → eliminar producto
-app.delete('/api/productos/:sku', (req, res) => {
-  const { sku } = req.params;
-  db.run('DELETE FROM productos WHERE sku = ?', [sku], (err) => {
+// POST /api/stocks/:usuario → guarda/actualiza stocks (payload: { sku: cantidad })
+app.post('/api/stocks/:usuario', (req, res) => {
+  const { usuario } = req.params;
+  const stock = req.body;
+  if (typeof stock !== 'object' || Array.isArray(stock)) {
+    return res.status(400).json({ error: 'Se espera un objeto { sku: cantidad }' });
+  }
+
+  db.serialize(() => {
+    db.run('BEGIN TRANSACTION');
+    let error = false;
+    for (const [sku, cantidad] of Object.entries(stock)) {
+      db.run(
+        `INSERT OR REPLACE INTO stocks (sku, usuario, cantidad) VALUES (?, ?, ?)`,
+        [sku, usuario, cantidad],
+        (err) => { if (err) { console.error(err); error = true; } }
+      );
+    }
+    if (error) {
+      db.run('ROLLBACK');
+      return res.status(500).json({ error: 'Error al guardar stocks' });
+    } else {
+      db.run('COMMIT');
+      res.json({ success: true });
+    }
+  });
+});
+
+// DELETE /api/stocks/:usuario → resetea todos los stocks del usuario
+app.delete('/api/stocks/:usuario', (req, res) => {
+  const { usuario } = req.params;
+  db.run('DELETE FROM stocks WHERE usuario = ?', [usuario], (err) => {
     if (err) {
       console.error(err);
-      return res.status(500).json({ error: 'Error al eliminar producto' });
+      return res.status(500).json({ error: 'Error al resetear stocks' });
     }
     res.json({ success: true });
   });
@@ -158,12 +193,11 @@ app.delete('/api/productos/:sku', (req, res) => {
 // ================================================================
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Para cualquier ruta no API, devolver index.html (SPA)
+// Para cualquier ruta no API, devolver index.html
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Iniciar servidor
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Servidor corriendo en http://0.0.0.0:${PORT}`);
 });
