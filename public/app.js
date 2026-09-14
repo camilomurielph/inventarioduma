@@ -1,10 +1,10 @@
 // ================================================================
-//  INVENTARIO DUMASHE — app.js (versión API SQLite)
+//  INVENTARIO DUMASHE — app.js (stock por usuario en SQLite)
 // ================================================================
 
 // ── Globals ──────────────────────────────────────────────────────
 let productosData = [];
-let stockStorage = {};
+let stockStorage = {}; // { sku: cantidad } del usuario actual
 let categoriasSet = new Set();
 const PASSWORD_ADMIN = "1330";
 const PASSWORD_GUEST = "invitado";
@@ -22,7 +22,7 @@ const TELEGRAM_BOT_TOKEN = "8734858031:AAHFZreCoRJtCAgPPWeoawoPzuxiMZXyjQU";
 const TELEGRAM_CHAT_ID = "898495705";
 
 // ── API config ──────────────────────────────────────────────────
-const API_BASE_URL = '/api';  // Relativo al mismo dominio
+const API_BASE_URL = '/api';
 
 // ── DOM refs ──────────────────────────────────────────────────────
 const loginModal = document.getElementById("loginModal");
@@ -37,15 +37,9 @@ const categoriasChecklist = document.getElementById("categoriasChecklist");
 const categoriasSection = document.getElementById("categoriasSection");
 const categoriaDropdown = document.getElementById("categoriaDropdown");
 const temporalActions = document.getElementById("temporalActions");
-const agregarProductoTemporalBtn = document.getElementById(
-  "agregarProductoTemporalBtn",
-);
-const importarProductosTemporalBtn = document.getElementById(
-  "importarProductosTemporalBtn",
-);
-const copiarProductosTemporalBtn = document.getElementById(
-  "copiarProductosTemporalBtn",
-);
+const agregarProductoTemporalBtn = document.getElementById("agregarProductoTemporalBtn");
+const importarProductosTemporalBtn = document.getElementById("importarProductosTemporalBtn");
+const copiarProductosTemporalBtn = document.getElementById("copiarProductosTemporalBtn");
 const nuevoInventarioBtn = document.getElementById("nuevoInventarioBtn");
 const btnModoTemporal = document.getElementById("btnModoTemporal");
 const btnLogout = document.getElementById("btnLogout");
@@ -54,17 +48,11 @@ const copiarMarkdownBtn = document.getElementById("copiarMarkdownBtn");
 const descargarMarkdownBtn = document.getElementById("descargarMarkdownBtn");
 const exportarProductosBtn = document.getElementById("exportarProductosBtn");
 const copiarProductosBtn = document.getElementById("copiarProductosBtn");
-const enviarPdfSimpleTelegramBtn = document.getElementById(
-  "enviarPdfSimpleTelegramBtn",
-);
-const enviarReporteTelegramBtn = document.getElementById(
-  "enviarReporteTelegramBtn",
-);
+const enviarPdfSimpleTelegramBtn = document.getElementById("enviarPdfSimpleTelegramBtn");
+const enviarReporteTelegramBtn = document.getElementById("enviarReporteTelegramBtn");
 const enviarMdTelegramBtn = document.getElementById("enviarMdTelegramBtn");
 const enviarJsTelegramBtn = document.getElementById("enviarJsTelegramBtn");
-const enviarAgotadosTelegramBtn = document.getElementById(
-  "enviarAgotadosTelegramBtn",
-);
+const enviarAgotadosTelegramBtn = document.getElementById("enviarAgotadosTelegramBtn");
 const imageModal = document.getElementById("imageModal");
 const modalImage = document.getElementById("modalImage");
 const modalImgNombre = document.getElementById("modalImgNombre");
@@ -72,8 +60,12 @@ const closeModalBtn = document.getElementById("closeModalBtn");
 const crearCategoriaBtn = document.getElementById("crearCategoriaBtn");
 
 // ================================================================
-//  FUNCIÓN PARA GENERAR SKU AUTOMÁTICAMENTE
+//  HELPERS
 // ================================================================
+function getUsuarioActual() {
+  return currentUserRole === "admin" ? "admin" : "invitado";
+}
+
 function generarSKU(nombre, listaProductos, skuBase = null) {
   if (skuBase) {
     const existe = listaProductos.some((p) => p.sku === skuBase);
@@ -97,60 +89,36 @@ function generarSKU(nombre, listaProductos, skuBase = null) {
 }
 
 // ================================================================
-//  CARGAR Y GUARDAR PRODUCTOS (vía API)
+//  API: PRODUCTOS
 // ================================================================
 async function cargarProductosDesdeAPI() {
   try {
     const respuesta = await fetch(`${API_BASE_URL}/productos`);
     if (!respuesta.ok) throw new Error(`HTTP ${respuesta.status}`);
     const data = await respuesta.json();
-    // data: [{ sku, nombre, categoria, imagenUrl, stock }]
-    const productos = data.map(p => ({
+    return data.map(p => ({
       sku: p.sku,
       nombre: p.nombre,
       categoria: p.categoria,
       imagenUrl: p.imagenUrl || ''
     }));
-    // Actualizar stockStorage con los stocks recibidos
-    data.forEach(p => {
-      if (p.stock !== 0) {
-        stockStorage[p.sku] = p.stock;
-      } else {
-        delete stockStorage[p.sku];
-      }
-    });
-    guardarStocks();
-    return productos;
   } catch (error) {
-    console.error('Error cargando desde API:', error);
-    if (window.productos && window.productos.length) {
-      console.warn('Usando productos.js local como respaldo');
-      return window.productos;
-    }
+    console.error('Error cargando productos:', error);
+    if (window.productos && window.productos.length) return window.productos;
     throw error;
   }
 }
 
 async function guardarProductosEnAPI(productosArray) {
   if (modoTemporal) {
-    toast(
-      "En modo temporal no se guardan cambios en el inventario principal",
-      "info"
-    );
+    toast("En modo temporal no se guardan cambios en el inventario principal", "info");
     return true;
   }
-  const payload = productosArray.map(p => ({
-    sku: p.sku,
-    nombre: p.nombre,
-    categoria: p.categoria,
-    imagenUrl: p.imagenUrl || '',
-    stock: stockStorage[p.sku] || 0
-  }));
   try {
     const respuesta = await fetch(`${API_BASE_URL}/productos`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(productosArray)
     });
     if (!respuesta.ok) {
       const errorData = await respuesta.json();
@@ -158,7 +126,48 @@ async function guardarProductosEnAPI(productosArray) {
     }
     return true;
   } catch (error) {
-    console.error('Error guardando en API:', error);
+    console.error('Error guardando productos:', error);
+    throw error;
+  }
+}
+
+// ================================================================
+//  API: STOCK POR USUARIO
+// ================================================================
+async function cargarStockUsuario() {
+  const usuario = getUsuarioActual();
+  try {
+    const respuesta = await fetch(`${API_BASE_URL}/stocks/${usuario}`);
+    if (!respuesta.ok) throw new Error(`HTTP ${respuesta.status}`);
+    stockStorage = await respuesta.json();
+  } catch (error) {
+    console.error("Error cargando stock del usuario:", error);
+    stockStorage = {};
+  }
+}
+
+async function guardarStockUsuario(sku, cantidad) {
+  const usuario = getUsuarioActual();
+  try {
+    await fetch(`${API_BASE_URL}/stocks/${usuario}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ [sku]: cantidad })
+    });
+  } catch (error) {
+    console.error("Error guardando stock:", error);
+    toast("Error al guardar el stock. Los cambios no son permanentes.", "error");
+  }
+}
+
+async function resetearStockUsuario() {
+  const usuario = getUsuarioActual();
+  try {
+    await fetch(`${API_BASE_URL}/stocks/${usuario}`, { method: "DELETE" });
+    stockStorage = {};
+  } catch (error) {
+    console.error("Error reseteando stock:", error);
+    toast("Error al resetear los stocks", "error");
     throw error;
   }
 }
@@ -170,9 +179,7 @@ function cargarProductosTemporales() {
   try {
     const data = localStorage.getItem(STORAGE_TEMP_PROD);
     return data ? JSON.parse(data) : [];
-  } catch (e) {
-    return [];
-  }
+  } catch (e) { return []; }
 }
 function guardarProductosTemporales() {
   localStorage.setItem(STORAGE_TEMP_PROD, JSON.stringify(productosTemporales));
@@ -181,16 +188,14 @@ function cargarStocksTemporales() {
   try {
     const data = localStorage.getItem(STORAGE_TEMP_STOCK);
     return data ? JSON.parse(data) : {};
-  } catch (e) {
-    return {};
-  }
+  } catch (e) { return {}; }
 }
 function guardarStocksTemporales() {
   localStorage.setItem(STORAGE_TEMP_STOCK, JSON.stringify(stockTemporal));
 }
 
 // ================================================================
-//  OBTENER PRODUCTOS Y STOCK SEGÚN MODO
+//  OBTENER PRODUCTOS Y STOCK
 // ================================================================
 function obtenerProductosActuales() {
   return modoTemporal ? productosTemporales : productosData;
@@ -222,7 +227,7 @@ function restarStockTemporal(sku, cantidad) {
 }
 
 // ================================================================
-//  MODAL CUSTOM (soporta textarea)
+//  MODAL CUSTOM
 // ================================================================
 function showCustomModal({
   title,
@@ -281,36 +286,21 @@ function showCustomModal({
       confirmBtn.removeEventListener("click", onConfirm);
       modal.removeEventListener("click", onBackdrop);
     }
-    function onCancel() {
-      cleanup();
-      resolve(null);
-    }
+    function onCancel() { cleanup(); resolve(null); }
     function onConfirm() {
-      if (fields.length === 0) {
-        cleanup();
-        resolve(true);
-        return;
-      }
-      const result = {};
-      let valid = true;
+      if (fields.length === 0) { cleanup(); resolve(true); return; }
+      const result = {}; let valid = true;
       fields.forEach((f) => {
         const el = document.getElementById(`cmf_${f.id}`);
         let val = el ? el.value.trim() : "";
-        if (f.required && !val) {
-          el.classList.add("input-error");
-          valid = false;
-          return;
-        }
+        if (f.required && !val) { el.classList.add("input-error"); valid = false; return; }
         if (el) el.classList.remove("input-error");
         result[f.id] = val;
       });
       if (!valid) return;
-      cleanup();
-      resolve(result);
+      cleanup(); resolve(result);
     }
-    function onBackdrop(e) {
-      if (e.target === modal) onCancel();
-    }
+    function onBackdrop(e) { if (e.target === modal) onCancel(); }
 
     cancelBtn.addEventListener("click", onCancel);
     confirmBtn.addEventListener("click", onConfirm);
@@ -334,9 +324,7 @@ function checkAuth() {
 }
 
 loginBtn.addEventListener("click", doLogin);
-passwordInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") doLogin();
-});
+passwordInput.addEventListener("keydown", (e) => { if (e.key === "Enter") doLogin(); });
 
 function doLogin() {
   const enteredPassword = passwordInput.value;
@@ -373,51 +361,31 @@ function cerrarSesion() {
 }
 
 // ================================================================
-//  STOCK PRINCIPAL (localStorage)
+//  STOCK PRINCIPAL (vía API)
 // ================================================================
-function cargarStocks() {
-  try {
-    stockStorage = JSON.parse(localStorage.getItem("inventarioStocks") || "{}");
-  } catch (e) {
-    stockStorage = {};
-  }
-}
-function guardarStocks() {
-  if (modoTemporal) return;
-  localStorage.setItem("inventarioStocks", JSON.stringify(stockStorage));
-}
-
-function actualizarStock(sku, valorSuma) {
-  if (modoTemporal) {
-    actualizarStockTemporal(sku, valorSuma);
-    return;
-  }
+async function actualizarStock(sku, valorSuma) {
+  if (modoTemporal) { actualizarStockTemporal(sku, valorSuma); return; }
   const num = parseInt(valorSuma, 10);
   if (isNaN(num) || num <= 0) return;
   stockStorage[sku] = (stockStorage[sku] || 0) + num;
-  guardarStocks();
   actualizarCardStock(sku, stockStorage[sku]);
   toast(`+${num} · total: ${stockStorage[sku]}`, "success");
+  await guardarStockUsuario(sku, stockStorage[sku]);
 }
 
-function restarStock(sku, valor) {
-  if (modoTemporal) {
-    restarStockTemporal(sku, valor);
-    return;
-  }
+async function restarStock(sku, valor) {
+  if (modoTemporal) { restarStockTemporal(sku, valor); return; }
   const num = parseInt(valor, 10);
   if (isNaN(num) || num <= 0) return;
   const nuevoValor = Math.max(-1, (stockStorage[sku] || 0) - num);
   stockStorage[sku] = nuevoValor;
-  guardarStocks();
   actualizarCardStock(sku, stockStorage[sku]);
   toast(`−${num} · total: ${stockStorage[sku]}`, "info");
+  await guardarStockUsuario(sku, stockStorage[sku]);
 }
 
 function actualizarCardStock(sku, total) {
-  const card = document.querySelector(
-    `.producto-card[data-sku="${CSS.escape(sku)}"]`,
-  );
+  const card = document.querySelector(`.producto-card[data-sku="${CSS.escape(sku)}"]`);
   if (!card) return;
   const hint = card.querySelector(".stock-hint");
   const input = card.querySelector(".stock-input");
@@ -442,62 +410,31 @@ function actualizarCardStock(sku, total) {
 }
 
 // ================================================================
-//  CRUD PRODUCTOS PRINCIPALES (solo admin, no en modo temporal)
+//  CRUD PRODUCTOS PRINCIPALES
 // ================================================================
 async function agregarProductoNuevo(categoria) {
-  if (modoTemporal) {
-    await agregarProductoTemporal();
-    return;
-  }
-  if (currentUserRole !== "admin") {
-    toast("No tienes permiso para agregar productos", "error");
-    return;
-  }
+  if (modoTemporal) { await agregarProductoTemporal(); return; }
+  if (currentUserRole !== "admin") { toast("No tienes permiso para agregar productos", "error"); return; }
   const result = await showCustomModal({
     title: "Nuevo producto",
     subtitle: `Se añadirá al final de: ${categoria} (SKU opcional)`,
     fields: [
-      {
-        id: "sku",
-        label: "SKU (opcional)",
-        placeholder: "Déjalo vacío para generar automático",
-        required: false,
-      },
-      {
-        id: "nombre",
-        label: "Nombre",
-        placeholder: "Nombre del producto",
-        required: true,
-      },
-      {
-        id: "imagen",
-        label: "URL Imagen (opcional)",
-        placeholder: "https://...",
-        required: false,
-      },
+      { id: "sku", label: "SKU (opcional)", placeholder: "Déjalo vacío para generar automático", required: false },
+      { id: "nombre", label: "Nombre", placeholder: "Nombre del producto", required: true },
+      { id: "imagen", label: "URL Imagen (opcional)", placeholder: "https://...", required: false },
     ],
     confirmText: "Agregar",
   });
   if (!result) return;
   let { sku, nombre, imagen } = result;
-  if (!sku) {
-    sku = generarSKU(nombre, productosData);
-  } else {
-    if (productosData.some((p) => p.sku === sku)) {
-      toast("Ya existe un producto con ese SKU", "error");
-      return;
-    }
+  if (!sku) { sku = generarSKU(nombre, productosData); }
+  else if (productosData.some((p) => p.sku === sku)) {
+    toast("Ya existe un producto con ese SKU", "error"); return;
   }
-  const ultimoIdxCategoria = productosData.reduce(
-    (last, p, i) => (p.categoria === categoria ? i : last),
-    -1,
-  );
+  const ultimoIdxCategoria = productosData.reduce((last, p, i) => (p.categoria === categoria ? i : last), -1);
   const nuevoProducto = { sku, nombre, categoria, imagenUrl: imagen || "" };
-  if (ultimoIdxCategoria >= 0) {
-    productosData.splice(ultimoIdxCategoria + 1, 0, nuevoProducto);
-  } else {
-    productosData.push(nuevoProducto);
-  }
+  if (ultimoIdxCategoria >= 0) productosData.splice(ultimoIdxCategoria + 1, 0, nuevoProducto);
+  else productosData.push(nuevoProducto);
   if (!categoriasSet.has(categoria)) categoriasSet.add(categoria);
   try {
     await guardarProductosEnAPI(productosData);
@@ -505,39 +442,23 @@ async function agregarProductoNuevo(categoria) {
     actualizarConteosCategorias();
     toast(`"${nombre}" agregado (SKU: ${sku})`, "success");
   } catch (err) {
-    toast(
-      "Error al guardar en la base de datos. Los cambios no son permanentes.",
-      "error",
-    );
+    toast("Error al guardar en la base de datos. Los cambios no son permanentes.", "error");
   }
   setTimeout(() => {
-    const card = document.querySelector(
-      `.producto-card[data-sku="${CSS.escape(sku)}"]`,
-    );
+    const card = document.querySelector(`.producto-card[data-sku="${CSS.escape(sku)}"]`);
     if (card) card.scrollIntoView({ behavior: "smooth", block: "center" });
   }, 120);
 }
 
 async function editarProducto(sku, nombreActual, imagenActual) {
-  if (modoTemporal) {
-    await editarProductoTemporal(sku, nombreActual, imagenActual);
-    return;
-  }
-  if (currentUserRole !== "admin") {
-    toast("No tienes permiso para editar productos", "error");
-    return;
-  }
+  if (modoTemporal) { await editarProductoTemporal(sku, nombreActual, imagenActual); return; }
+  if (currentUserRole !== "admin") { toast("No tienes permiso para editar productos", "error"); return; }
   const result = await showCustomModal({
     title: "Editar producto",
     fields: [
       { id: "nombre", label: "Nombre", value: nombreActual, required: true },
       { id: "sku", label: "SKU", value: sku, required: true },
-      {
-        id: "imagen",
-        label: "URL Imagen",
-        value: imagenActual,
-        required: false,
-      },
+      { id: "imagen", label: "URL Imagen", value: imagenActual, required: false },
     ],
     confirmText: "Guardar",
   });
@@ -546,8 +467,7 @@ async function editarProducto(sku, nombreActual, imagenActual) {
   const index = productosData.findIndex((p) => p.sku === sku);
   if (index === -1) return;
   if (nuevoSku !== sku && productosData.some((p) => p.sku === nuevoSku)) {
-    toast("Ya existe un producto con ese SKU", "error");
-    return;
+    toast("Ya existe un producto con ese SKU", "error"); return;
   }
   productosData[index].nombre = nuevoNombre;
   productosData[index].sku = nuevoSku;
@@ -555,29 +475,19 @@ async function editarProducto(sku, nombreActual, imagenActual) {
   if (nuevoSku !== sku && stockStorage[sku] !== undefined) {
     stockStorage[nuevoSku] = stockStorage[sku];
     delete stockStorage[sku];
-    guardarStocks();
   }
   try {
     await guardarProductosEnAPI(productosData);
     renderizarProductos();
-    toast(`"${nuevoSku}" actualizado y guardado en la base de datos`, "success");
+    toast(`"${nuevoSku}" actualizado`, "success");
   } catch (err) {
-    toast(
-      "Error al guardar en la base de datos. Los cambios no son permanentes.",
-      "error",
-    );
+    toast("Error al guardar en la base de datos. Los cambios no son permanentes.", "error");
   }
 }
 
 async function eliminarProducto(sku, nombre) {
-  if (modoTemporal) {
-    await eliminarProductoTemporal(sku);
-    return;
-  }
-  if (currentUserRole !== "admin") {
-    toast("No tienes permiso para eliminar productos", "error");
-    return;
-  }
+  if (modoTemporal) { await eliminarProductoTemporal(sku); return; }
+  if (currentUserRole !== "admin") { toast("No tienes permiso para eliminar productos", "error"); return; }
   const result = await showCustomModal({
     title: "Eliminar producto",
     subtitle: `¿Eliminar permanentemente "${nombre}" (${sku})?`,
@@ -590,48 +500,28 @@ async function eliminarProducto(sku, nombre) {
   if (index !== -1) {
     productosData.splice(index, 1);
     delete stockStorage[sku];
-    guardarStocks();
     try {
       await guardarProductosEnAPI(productosData);
       renderizarProductos();
       actualizarConteosCategorias();
-      toast(`"${nombre}" eliminado del inventario y de la base de datos`, "warning");
+      toast(`"${nombre}" eliminado`, "warning");
     } catch (err) {
-      toast(
-        "Error al guardar en la base de datos. Los cambios no son permanentes.",
-        "error",
-      );
+      toast("Error al guardar en la base de datos. Los cambios no son permanentes.", "error");
     }
   }
 }
 
 // ================================================================
-//  CRUD PRODUCTOS TEMPORALES (sin cambios)
+//  CRUD PRODUCTOS TEMPORALES
 // ================================================================
 async function agregarProductoTemporal() {
   const result = await showCustomModal({
     title: "Agregar producto temporal",
-    subtitle:
-      "Este producto solo existirá en el conteo temporal (SKU opcional)",
+    subtitle: "Este producto solo existirá en el conteo temporal (SKU opcional)",
     fields: [
-      {
-        id: "sku",
-        label: "SKU (opcional)",
-        placeholder: "Déjalo vacío para generar automático",
-        required: false,
-      },
-      {
-        id: "nombre",
-        label: "Nombre",
-        placeholder: "Nombre del producto",
-        required: true,
-      },
-      {
-        id: "imagen",
-        label: "URL Imagen (opcional)",
-        placeholder: "https://...",
-        required: false,
-      },
+      { id: "sku", label: "SKU (opcional)", placeholder: "Déjalo vacío para generar automático", required: false },
+      { id: "nombre", label: "Nombre", placeholder: "Nombre del producto", required: true },
+      { id: "imagen", label: "URL Imagen (opcional)", placeholder: "https://...", required: false },
     ],
     confirmText: "Agregar",
   });
@@ -639,8 +529,7 @@ async function agregarProductoTemporal() {
   let { sku, nombre, imagen } = result;
   if (!sku) sku = generarSKU(nombre, productosTemporales);
   else if (productosTemporales.some((p) => p.sku === sku)) {
-    toast("Ya existe un producto temporal con ese SKU", "error");
-    return;
+    toast("Ya existe un producto temporal con ese SKU", "error"); return;
   }
   const nuevoProducto = { sku, nombre, imagenUrl: imagen || "" };
   productosTemporales.push(nuevoProducto);
@@ -655,12 +544,7 @@ async function editarProductoTemporal(sku, nombreActual, imagenActual) {
     fields: [
       { id: "nombre", label: "Nombre", value: nombreActual, required: true },
       { id: "sku", label: "SKU", value: sku, required: true },
-      {
-        id: "imagen",
-        label: "URL Imagen",
-        value: imagenActual,
-        required: false,
-      },
+      { id: "imagen", label: "URL Imagen", value: imagenActual, required: false },
     ],
     confirmText: "Guardar",
   });
@@ -669,8 +553,7 @@ async function editarProductoTemporal(sku, nombreActual, imagenActual) {
   const index = productosTemporales.findIndex((p) => p.sku === sku);
   if (index === -1) return;
   if (nuevoSku !== sku && productosTemporales.some((p) => p.sku === nuevoSku)) {
-    toast("Ya existe un producto temporal con ese SKU", "error");
-    return;
+    toast("Ya existe un producto temporal con ese SKU", "error"); return;
   }
   productosTemporales[index].nombre = nuevoNombre;
   productosTemporales[index].sku = nuevoSku;
@@ -706,71 +589,43 @@ async function eliminarProductoTemporal(sku) {
 }
 
 // ================================================================
-//  CREAR NUEVA CATEGORÍA (con producto base) - usando API
+//  CREAR NUEVA CATEGORÍA (con producto base)
 // ================================================================
 async function crearNuevaCategoria() {
-  if (currentUserRole !== "admin") {
-    toast("No tienes permiso para crear categorías", "error");
-    return;
-  }
-  if (modoTemporal) {
-    toast("No puedes crear categorías en modo temporal", "error");
-    return;
-  }
+  if (currentUserRole !== "admin") { toast("No tienes permiso para crear categorías", "error"); return; }
+  if (modoTemporal) { toast("No puedes crear categorías en modo temporal", "error"); return; }
   const result = await showCustomModal({
     title: "Nueva categoría",
-    subtitle:
-      "Ingresa el nombre de la categoría. Se creará un producto base automáticamente.",
+    subtitle: "Ingresa el nombre de la categoría. Se creará un producto base automáticamente.",
     fields: [
-      {
-        id: "nombre",
-        label: "Nombre de la categoría",
-        placeholder: "Ej. Cuidado facial",
-        required: true,
-      },
+      { id: "nombre", label: "Nombre de la categoría", placeholder: "Ej. Cuidado facial", required: true },
     ],
     confirmText: "Crear",
   });
   if (!result) return;
   const nombre = result.nombre.trim();
-  if (categoriasSet.has(nombre)) {
-    toast("Ya existe una categoría con ese nombre", "error");
-    return;
-  }
+  if (categoriasSet.has(nombre)) { toast("Ya existe una categoría con ese nombre", "error"); return; }
   categoriasSet.add(nombre);
-
-  const productoBase = {
-    sku: "PBASE001",
-    nombre: "Producto base",
-    categoria: nombre,
-    imagenUrl: "",
-  };
+  const productoBase = { sku: "PBASE001", nombre: "Producto base", categoria: nombre, imagenUrl: "" };
   if (productosData.some((p) => p.sku === productoBase.sku)) {
     productoBase.sku = generarSKU("Producto base", productosData);
   }
   productosData.push(productoBase);
-
   try {
     await guardarProductosEnAPI(productosData);
     construirIndiceCategorias();
     renderizarProductos();
     actualizarConteosCategorias();
-    toast(
-      `Categoría "${nombre}" creada con producto base (SKU: ${productoBase.sku})`,
-      "success",
-    );
+    toast(`Categoría "${nombre}" creada con producto base (SKU: ${productoBase.sku})`, "success");
   } catch (err) {
-    toast(
-      "Error al guardar en la base de datos. La categoría se creó localmente pero no se guardó.",
-      "error",
-    );
+    toast("Error al guardar en la base de datos. La categoría se creó localmente pero no se guardó.", "error");
     construirIndiceCategorias();
     renderizarProductos();
   }
 }
 
 // ================================================================
-//  PARSEAR BLOQUE DE PRODUCTOS (compartido)
+//  PARSEAR BLOQUE DE PRODUCTOS
 // ================================================================
 function parsearBloqueProductos(texto, listaExistente) {
   const lineas = texto.split("\n");
@@ -779,26 +634,17 @@ function parsearBloqueProductos(texto, listaExistente) {
   for (let linea of lineas) {
     const trim = linea.trim();
     if (trim === "") {
-      if (actual.nombre && (actual.sku || true)) {
-        productos.push({ ...actual });
-        actual = {};
-      }
+      if (actual.nombre && (actual.sku || true)) { productos.push({ ...actual }); actual = {}; }
       continue;
     }
     const matchNombre = trim.match(/^nombre\s*:\s*(.*)/i);
     const matchSku = trim.match(/^sku\s*:\s*(.*)/i);
     const matchUrl = trim.match(/^(?:url|url img|imagen|img)\s*:\s*(.*)/i);
-    if (matchNombre) {
-      actual.nombre = matchNombre[1].trim();
-    } else if (matchSku) {
-      actual.sku = matchSku[1].trim();
-    } else if (matchUrl) {
-      actual.imagenUrl = matchUrl[1].trim();
-    } else {
-      if (actual.nombre && (actual.sku || true)) {
-        productos.push({ ...actual });
-        actual = {};
-      }
+    if (matchNombre) actual.nombre = matchNombre[1].trim();
+    else if (matchSku) actual.sku = matchSku[1].trim();
+    else if (matchUrl) actual.imagenUrl = matchUrl[1].trim();
+    else {
+      if (actual.nombre && (actual.sku || true)) { productos.push({ ...actual }); actual = {}; }
     }
   }
   if (actual.nombre && (actual.sku || true)) productos.push({ ...actual });
@@ -815,42 +661,21 @@ function parsearBloqueProductos(texto, listaExistente) {
 async function importarProductosTemporales() {
   const result = await showCustomModal({
     title: "Importar productos temporales",
-    subtitle:
-      "Pega el bloque de productos con el formato:\n\nNombre: ...\nSKU: ... (opcional)\nUrl img: ...\n\n(separados por líneas en blanco)",
+    subtitle: "Pega el bloque de productos con el formato:\n\nNombre: ...\nSKU: ... (opcional)\nUrl img: ...\n\n(separados por líneas en blanco)",
     fields: [
-      {
-        id: "bloque",
-        label: "Bloque de productos",
-        type: "textarea",
-        placeholder: "Nombre: ...\nSKU: ...\nUrl img: ...\n\nNombre: ...",
-        required: true,
-      },
+      { id: "bloque", label: "Bloque de productos", type: "textarea", placeholder: "Nombre: ...\nSKU: ...\nUrl img: ...\n\nNombre: ...", required: true },
     ],
     confirmText: "Importar",
   });
   if (!result) return;
-  const productosImportados = parsearBloqueProductos(
-    result.bloque,
-    productosTemporales,
-  );
-  if (productosImportados.length === 0) {
-    toast(
-      "No se encontraron productos válidos en el texto. Asegúrate de incluir al menos el Nombre.",
-      "error",
-    );
-    return;
-  }
+  const productosImportados = parsearBloqueProductos(result.bloque, productosTemporales);
+  if (productosImportados.length === 0) { toast("No se encontraron productos válidos", "error"); return; }
   let agregados = 0;
   for (let prod of productosImportados) {
     if (productosTemporales.some((p) => p.sku === prod.sku)) {
-      toast(`SKU "${prod.sku}" ya existe, se omite`, "warning");
-      continue;
+      toast(`SKU "${prod.sku}" ya existe, se omite`, "warning"); continue;
     }
-    productosTemporales.push({
-      sku: prod.sku,
-      nombre: prod.nombre,
-      imagenUrl: prod.imagenUrl || "",
-    });
+    productosTemporales.push({ sku: prod.sku, nombre: prod.nombre, imagenUrl: prod.imagenUrl || "" });
     agregados++;
   }
   if (agregados > 0) {
@@ -858,57 +683,32 @@ async function importarProductosTemporales() {
     renderizarProductos();
     toast(`Se importaron ${agregados} productos temporales`, "success");
   } else {
-    toast(
-      "No se importó ningún producto nuevo (todos los SKU ya existían)",
-      "info",
-    );
+    toast("No se importó ningún producto nuevo", "info");
   }
 }
 
 // ================================================================
-//  IMPORTAR MÚLTIPLES PRODUCTOS (MODO NORMAL - "Agregar desde script")
+//  IMPORTAR MÚLTIPLES PRODUCTOS (MODO NORMAL)
 // ================================================================
 async function importarProductosPrincipales(categoria) {
-  if (currentUserRole !== "admin") {
-    toast("No tienes permiso para agregar productos", "error");
-    return;
-  }
+  if (currentUserRole !== "admin") { toast("No tienes permiso para agregar productos", "error"); return; }
   const result = await showCustomModal({
     title: "Agregar desde script",
     subtitle: `Pega el bloque de productos con el formato:\n\nNombre: ...\nSKU: ... (opcional)\nUrl img: ...\n\n(separados por líneas en blanco)\n\nSe asignarán a la categoría: ${categoria}`,
     fields: [
-      {
-        id: "bloque",
-        label: "Bloque de productos",
-        type: "textarea",
-        placeholder: "Nombre: ...\nSKU: ...\nUrl img: ...\n\nNombre: ...",
-        required: true,
-      },
+      { id: "bloque", label: "Bloque de productos", type: "textarea", placeholder: "Nombre: ...\nSKU: ...\nUrl img: ...\n\nNombre: ...", required: true },
     ],
     confirmText: "Agregar",
   });
   if (!result) return;
-  const productosImportados = parsearBloqueProductos(
-    result.bloque,
-    productosData,
-  );
-  if (productosImportados.length === 0) {
-    toast("No se encontraron productos válidos en el texto", "error");
-    return;
-  }
+  const productosImportados = parsearBloqueProductos(result.bloque, productosData);
+  if (productosImportados.length === 0) { toast("No se encontraron productos válidos", "error"); return; }
   let agregados = 0;
   for (let prod of productosImportados) {
     if (productosData.some((p) => p.sku === prod.sku)) {
-      toast(`SKU "${prod.sku}" ya existe, se omite`, "warning");
-      continue;
+      toast(`SKU "${prod.sku}" ya existe, se omite`, "warning"); continue;
     }
-    const nuevoProducto = {
-      sku: prod.sku,
-      nombre: prod.nombre,
-      categoria: categoria,
-      imagenUrl: prod.imagenUrl || "",
-    };
-    productosData.push(nuevoProducto);
+    productosData.push({ sku: prod.sku, nombre: prod.nombre, categoria, imagenUrl: prod.imagenUrl || "" });
     if (!categoriasSet.has(categoria)) categoriasSet.add(categoria);
     agregados++;
   }
@@ -917,15 +717,9 @@ async function importarProductosPrincipales(categoria) {
       await guardarProductosEnAPI(productosData);
       renderizarProductos();
       actualizarConteosCategorias();
-      toast(
-        `Se agregaron ${agregados} productos a la categoría ${categoria}`,
-        "success",
-      );
+      toast(`Se agregaron ${agregados} productos a la categoría ${categoria}`, "success");
     } catch (err) {
-      toast(
-        "Error al guardar en la base de datos. Los cambios no son permanentes.",
-        "error",
-      );
+      toast("Error al guardar en la base de datos. Los cambios no son permanentes.", "error");
     }
   } else {
     toast("No se agregó ningún producto nuevo", "info");
@@ -936,24 +730,15 @@ async function importarProductosPrincipales(categoria) {
 //  COPIAR PRODUCTOS TEMPORALES AL PORTAPAPELES
 // ================================================================
 function copiarProductosTemporales() {
-  if (productosTemporales.length === 0) {
-    toast("No hay productos temporales para copiar", "warning");
-    return;
-  }
+  if (productosTemporales.length === 0) { toast("No hay productos temporales para copiar", "warning"); return; }
   let texto = "";
   for (let p of productosTemporales) {
     texto += `Nombre: ${p.nombre}\n`;
     texto += `SKU: ${p.sku}\n`;
     texto += `Url img: ${p.imagenUrl || ""}\n\n`;
   }
-  navigator.clipboard
-    .writeText(texto)
-    .then(() =>
-      toast(
-        `${productosTemporales.length} productos copiados al portapapeles`,
-        "success",
-      ),
-    )
+  navigator.clipboard.writeText(texto)
+    .then(() => toast(`${productosTemporales.length} productos copiados al portapapeles`, "success"))
     .catch(() => toast("Error al copiar", "error"));
 }
 
@@ -976,9 +761,7 @@ function construirIndiceCategorias() {
     html += `<option value="${anchorId}">${escapeHtml(cat)}</option>`;
   }
   dropdown.innerHTML = html;
-  if (dropdown.dataset.selected) {
-    dropdown.value = dropdown.dataset.selected;
-  }
+  if (dropdown.dataset.selected) dropdown.value = dropdown.dataset.selected;
 }
 
 function categoriaAnchorId(cat) {
@@ -994,7 +777,6 @@ function scrollToCategoria(anchorId) {
   }
 }
 
-// Evento del dropdown
 document.addEventListener("change", function (e) {
   if (e.target && e.target.id === "categoriaDropdown") {
     const val = e.target.value;
@@ -1026,40 +808,24 @@ let sortableInstances = [];
 function buildProductCard(prod, extraStyle = "", role = "guest") {
   const stockValue = obtenerStockActual(prod.sku);
   let stockDisplay = "";
-  if (stockValue === -1) {
-    stockDisplay = `⚠️ Agotado (${stockValue})`;
-  } else if (stockValue > 0) {
-    stockDisplay = `Total: ${stockValue}`;
-  }
+  if (stockValue === -1) stockDisplay = `⚠️ Agotado (${stockValue})`;
+  else if (stockValue > 0) stockDisplay = `Total: ${stockValue}`;
   const placeholder = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60'%3E%3Crect width='60' height='60' fill='%23222'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' dy='.3em' fill='%23555' font-size='20'%3E%3F%3C/text%3E%3C/svg%3E`;
   const actionButtons = `
     <div class="product-actions">
-      <button class="btn-edit"
-              data-sku="${escapeAttr(prod.sku)}"
-              data-nombre="${escapeAttr(prod.nombre)}"
-              data-imagen="${escapeAttr(prod.imagenUrl)}" title="Editar">
+      <button class="btn-edit" data-sku="${escapeAttr(prod.sku)}" data-nombre="${escapeAttr(prod.nombre)}" data-imagen="${escapeAttr(prod.imagenUrl)}" title="Editar">
         <i data-lucide="pencil"></i>
       </button>
-      <button class="btn-delete"
-              data-sku="${escapeAttr(prod.sku)}"
-              data-nombre="${escapeAttr(prod.nombre)}" title="Eliminar">
+      <button class="btn-delete" data-sku="${escapeAttr(prod.sku)}" data-nombre="${escapeAttr(prod.nombre)}" title="Eliminar">
         <i data-lucide="trash-2"></i>
       </button>
     </div>
   `;
-
   return `
     <div class="producto-card" data-sku="${escapeAttr(prod.sku)}" ${extraStyle ? `style="${extraStyle}"` : ""}>
       <div class="producto-row">
-        <div class="drag-handle" title="Arrastrar para reordenar">
-          <i data-lucide="grip-vertical"></i>
-        </div>
-        <img class="prod-img"
-             src="${escapeAttr(prod.imagenUrl) || placeholder}"
-             alt="${escapeHtml(prod.nombre)}"
-             data-imagen="${escapeAttr(prod.imagenUrl)}"
-             data-nombre="${escapeAttr(prod.nombre)}"
-             onerror="this.src='${placeholder}'">
+        <div class="drag-handle" title="Arrastrar para reordenar"><i data-lucide="grip-vertical"></i></div>
+        <img class="prod-img" src="${escapeAttr(prod.imagenUrl) || placeholder}" alt="${escapeHtml(prod.nombre)}" data-imagen="${escapeAttr(prod.imagenUrl)}" data-nombre="${escapeAttr(prod.nombre)}" onerror="this.src='${placeholder}'">
         <div class="prod-info">
           <div class="prod-nombre">${escapeHtml(prod.nombre)}</div>
           <div class="prod-sku">${escapeHtml(prod.sku)}</div>
@@ -1069,8 +835,7 @@ function buildProductCard(prod, extraStyle = "", role = "guest") {
       </div>
       <div class="prod-stock">
         <button class="stock-btn restar" data-sku="${escapeAttr(prod.sku)}">−</button>
-        <input type="text" inputmode="numeric" class="stock-input"
-               data-sku="${escapeAttr(prod.sku)}" value="" placeholder="Cantidad">
+        <input type="text" inputmode="numeric" class="stock-input" data-sku="${escapeAttr(prod.sku)}" value="" placeholder="Cantidad">
         <button class="stock-btn sumar" data-sku="${escapeAttr(prod.sku)}">+</button>
       </div>
     </div>
@@ -1093,20 +858,13 @@ function renderizarProductos() {
 
   let html = "";
   if (modoTemporal) {
-    if (productos.length === 0) {
-      html =
-        '<div class="empty">No hay productos en el conteo temporal. Usa los botones de arriba para agregar.</div>';
-    } else {
-      html = productos.map((p) => buildProductCard(p, "", role)).join("");
-    }
+    if (productos.length === 0) html = '<div class="empty">No hay productos en el conteo temporal.</div>';
+    else html = productos.map((p) => buildProductCard(p, "", role)).join("");
   } else {
     const grupos = {};
     const ordenCats = [];
     for (let p of productos) {
-      if (!grupos[p.categoria]) {
-        grupos[p.categoria] = [];
-        ordenCats.push(p.categoria);
-      }
+      if (!grupos[p.categoria]) { grupos[p.categoria] = []; ordenCats.push(p.categoria); }
       grupos[p.categoria].push(p);
     }
     for (let cat of ordenCats) {
@@ -1120,9 +878,7 @@ function renderizarProductos() {
         <div class="sortable-list" data-categoria="${escapeAttr(cat)}">
           ${prods.map((p) => buildProductCard(p, "", role)).join("")}
         </div>
-        ${
-          role === "admin"
-            ? `
+        ${role === "admin" ? `
           <div style="display: flex; gap: 8px; margin-top: 6px; margin-bottom: 8px; flex-wrap: wrap;">
             <button class="btn btn-outline btn-add-prod" data-categoria="${escapeAttr(cat)}" style="flex:1;">
               <i data-lucide="plus"></i> Agregar producto
@@ -1130,36 +886,25 @@ function renderizarProductos() {
             <button class="btn btn-outline btn-import-script" data-categoria="${escapeAttr(cat)}" style="flex:1;">
               <i data-lucide="file-json"></i> Agregar desde script
             </button>
-          </div>
-        `
-            : ""
-        }
+          </div>` : ""}
       `;
     }
   }
 
-  productosContainer.innerHTML =
-    html || '<div class="empty">Sin productos.</div>';
+  productosContainer.innerHTML = html || '<div class="empty">Sin productos.</div>';
 
   if (!modoTemporal) {
     productosContainer.querySelectorAll(".sortable-list").forEach((list) => {
-      sortableInstances.push(
-        Sortable.create(list, {
-          handle: ".drag-handle",
-          animation: 160,
-          ghostClass: "sortable-ghost",
-          chosenClass: "sortable-chosen",
-          onEnd(evt) {
-            if (evt.oldIndex === evt.newIndex) return;
-            reordenarCategoria(
-              list.dataset.categoria,
-              Array.from(list.querySelectorAll(".producto-card")).map(
-                (c) => c.dataset.sku,
-              ),
-            );
-          },
-        }),
-      );
+      sortableInstances.push(Sortable.create(list, {
+        handle: ".drag-handle",
+        animation: 160,
+        ghostClass: "sortable-ghost",
+        chosenClass: "sortable-chosen",
+        onEnd(evt) {
+          if (evt.oldIndex === evt.newIndex) return;
+          reordenarCategoria(list.dataset.categoria, Array.from(list.querySelectorAll(".producto-card")).map((c) => c.dataset.sku));
+        },
+      }));
     });
   }
 
@@ -1169,25 +914,12 @@ function renderizarProductos() {
 }
 
 async function reordenarCategoria(categoria, skusNuevoOrden) {
-  if (modoTemporal) {
-    toast("En modo temporal no se puede reordenar", "error");
-    return;
-  }
-  if (currentUserRole !== "admin") {
-    toast("No tienes permiso para reordenar productos", "error");
-    return;
-  }
-  const reordenados = skusNuevoOrden
-    .map((sku) => productosData.find((p) => p.sku === sku))
-    .filter(Boolean);
-  const indices = productosData.reduce(
-    (acc, p, i) => (p.categoria === categoria ? [...acc, i] : acc),
-    [],
-  );
+  if (modoTemporal) { toast("En modo temporal no se puede reordenar", "error"); return; }
+  if (currentUserRole !== "admin") { toast("No tienes permiso para reordenar productos", "error"); return; }
+  const reordenados = skusNuevoOrden.map((sku) => productosData.find((p) => p.sku === sku)).filter(Boolean);
+  const indices = productosData.reduce((acc, p, i) => (p.categoria === categoria ? [...acc, i] : acc), []);
   if (reordenados.length !== indices.length) return;
-  indices.forEach((idx, i) => {
-    productosData[idx] = reordenados[i];
-  });
+  indices.forEach((idx, i) => { productosData[idx] = reordenados[i]; });
   try {
     await guardarProductosEnAPI(productosData);
     toast("Orden guardado en la base de datos", "info");
@@ -1218,7 +950,6 @@ function bindCardEvents() {
       input.value = "";
     }),
   );
-
   document.querySelectorAll(".stock-input").forEach((inp) => {
     inp.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
@@ -1228,54 +959,36 @@ function bindCardEvents() {
       }
     });
   });
-
   document.querySelectorAll(".prod-img").forEach((img) =>
     img.addEventListener("click", (e) => {
       const url = e.currentTarget.dataset.imagen || e.currentTarget.src;
       const nombre = e.currentTarget.dataset.nombre || "";
       modalImage.src = url;
-      modalImgNombre.textContent = decodeURIComponent(
-        nombre.replace(/&#39;/g, "'").replace(/&quot;/g, '"'),
-      );
+      modalImgNombre.textContent = decodeURIComponent(nombre.replace(/&#39;/g, "'").replace(/&quot;/g, '"'));
       imageModal.style.display = "flex";
     }),
   );
-
   document.querySelectorAll(".btn-add-prod").forEach((btn) =>
     btn.addEventListener("click", (e) => {
       if (modoTemporal) agregarProductoTemporal();
       else agregarProductoNuevo(e.currentTarget.dataset.categoria);
     }),
   );
-
   document.querySelectorAll(".btn-import-script").forEach((btn) =>
     btn.addEventListener("click", (e) => {
-      const categoria = e.currentTarget.dataset.categoria;
-      importarProductosPrincipales(categoria);
+      importarProductosPrincipales(e.currentTarget.dataset.categoria);
     }),
   );
-
-  document
-    .querySelectorAll(".btn-edit")
-    .forEach((btn) =>
-      btn.addEventListener("click", (e) =>
-        editarProducto(
-          e.currentTarget.dataset.sku,
-          e.currentTarget.dataset.nombre,
-          e.currentTarget.dataset.imagen,
-        ),
-      ),
-    );
-  document
-    .querySelectorAll(".btn-delete")
-    .forEach((btn) =>
-      btn.addEventListener("click", (e) =>
-        eliminarProducto(
-          e.currentTarget.dataset.sku,
-          e.currentTarget.dataset.nombre,
-        ),
-      ),
-    );
+  document.querySelectorAll(".btn-edit").forEach((btn) =>
+    btn.addEventListener("click", (e) =>
+      editarProducto(e.currentTarget.dataset.sku, e.currentTarget.dataset.nombre, e.currentTarget.dataset.imagen),
+    ),
+  );
+  document.querySelectorAll(".btn-delete").forEach((btn) =>
+    btn.addEventListener("click", (e) =>
+      eliminarProducto(e.currentTarget.dataset.sku, e.currentTarget.dataset.nombre),
+    ),
+  );
 }
 // ================================================================
 //  MODO TEMPORAL
@@ -1291,10 +1004,7 @@ function iniciarModoTemporal() {
   renderizarProductos();
   construirIndiceCategorias();
   actualizarUImodoTemporal();
-  toast(
-    `Modo temporal activo (${productosTemporales.length} productos)`,
-    "success",
-  );
+  toast(`Modo temporal activo (${productosTemporales.length} productos)`, "success");
 }
 
 function salirModoTemporal() {
@@ -1400,7 +1110,7 @@ async function sendFileToTelegram(blob, filename, caption = "") {
 //  GENERAR PDF (genérico)
 // ================================================================
 function generarPDFBase(productosFiltrados, titulo, incluirImagenes = true) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const { jsPDF } = window.jspdf;
     if (!productosFiltrados.length) {
       toast("No hay productos para generar el PDF", "warning");
@@ -1608,14 +1318,11 @@ function copiarProductosJS() {
 }
 
 // ================================================================
-//  RESET STOCKS (solo admin)
+//  RESET STOCKS (vía API, por usuario)
 // ================================================================
 async function resetearStocks() {
   if (modoTemporal) {
-    toast(
-      "En modo temporal no se pueden resetear los stocks principales",
-      "error",
-    );
+    toast("En modo temporal no se pueden resetear los stocks principales", "error");
     return;
   }
   if (currentUserRole !== "admin") {
@@ -1624,16 +1331,19 @@ async function resetearStocks() {
   }
   const ok = await showCustomModal({
     title: "Inventario nuevo",
-    subtitle: "¿Eliminar todos los stocks? No se puede deshacer.",
+    subtitle: "¿Eliminar todos los stocks del usuario actual? No se puede deshacer.",
     fields: [],
     confirmText: "Sí, limpiar todo",
     danger: true,
   });
   if (!ok) return;
-  stockStorage = {};
-  guardarStocks();
-  renderizarProductos();
-  toast("Stocks reiniciados a 0", "info");
+  try {
+    await resetearStockUsuario();
+    renderizarProductos();
+    toast("Stocks reiniciados a 0", "info");
+  } catch (err) {
+    // El error ya se muestra dentro de resetearStockUsuario
+  }
 }
 
 // ================================================================
@@ -1652,7 +1362,7 @@ function ajustarUIporRol() {
 }
 
 // ================================================================
-//  INIT (carga desde API)
+//  INIT (carga desde API + stock del usuario)
 // ================================================================
 async function initApp() {
   try {
@@ -1660,7 +1370,10 @@ async function initApp() {
     productosData = productosCargados;
     categoriasSet.clear();
     productosData.forEach((p) => categoriasSet.add(p.categoria));
-    cargarStocks();
+
+    // Cargar stock del usuario actual desde la API
+    await cargarStockUsuario();
+
     construirIndiceCategorias();
     renderizarProductos();
     ajustarUIporRol();
@@ -1675,7 +1388,7 @@ async function initApp() {
       productosData = [...window.productos];
       categoriasSet.clear();
       productosData.forEach((p) => categoriasSet.add(p.categoria));
-      cargarStocks();
+      stockStorage = {};
       construirIndiceCategorias();
       renderizarProductos();
       ajustarUIporRol();
@@ -1697,34 +1410,22 @@ if (agregarProductoTemporalBtn) {
   agregarProductoTemporalBtn.addEventListener("click", agregarProductoTemporal);
 }
 if (importarProductosTemporalBtn) {
-  importarProductosTemporalBtn.addEventListener(
-    "click",
-    importarProductosTemporales,
-  );
+  importarProductosTemporalBtn.addEventListener("click", importarProductosTemporales);
 }
 if (copiarProductosTemporalBtn) {
-  copiarProductosTemporalBtn.addEventListener(
-    "click",
-    copiarProductosTemporales,
-  );
+  copiarProductosTemporalBtn.addEventListener("click", copiarProductosTemporales);
 }
 exportarPdfBtn.addEventListener("click", () => exportarPDF(false, true));
 copiarMarkdownBtn.addEventListener("click", copiarMarkdown);
 descargarMarkdownBtn.addEventListener("click", descargarMarkdown);
-exportarProductosBtn.addEventListener("click", () =>
-  exportarProductosJS(false),
-);
+exportarProductosBtn.addEventListener("click", () => exportarProductosJS(false));
 if (copiarProductosBtn)
   copiarProductosBtn.addEventListener("click", copiarProductosJS);
 
 if (enviarPdfSimpleTelegramBtn)
-  enviarPdfSimpleTelegramBtn.addEventListener("click", () =>
-    enviarPDFaTelegram(false),
-  );
+  enviarPdfSimpleTelegramBtn.addEventListener("click", () => enviarPDFaTelegram(false));
 if (enviarReporteTelegramBtn)
-  enviarReporteTelegramBtn.addEventListener("click", () =>
-    enviarPDFaTelegram(true),
-  );
+  enviarReporteTelegramBtn.addEventListener("click", () => enviarPDFaTelegram(true));
 if (enviarMdTelegramBtn)
   enviarMdTelegramBtn.addEventListener("click", () => {
     const blob = new Blob([exportarMarkdown()], { type: "text/markdown" });
@@ -1735,9 +1436,7 @@ if (enviarMdTelegramBtn)
     );
   });
 if (enviarJsTelegramBtn)
-  enviarJsTelegramBtn.addEventListener("click", () =>
-    exportarProductosJS(true),
-  );
+  enviarJsTelegramBtn.addEventListener("click", () => exportarProductosJS(true));
 if (enviarAgotadosTelegramBtn) {
   enviarAgotadosTelegramBtn.addEventListener("click", enviarAgotadosTelegram);
 }
@@ -1746,10 +1445,7 @@ if (crearCategoriaBtn) {
   crearCategoriaBtn.addEventListener("click", crearNuevaCategoria);
 }
 
-closeModalBtn.addEventListener(
-  "click",
-  () => (imageModal.style.display = "none"),
-);
+closeModalBtn.addEventListener("click", () => (imageModal.style.display = "none"));
 imageModal.addEventListener("click", (e) => {
   if (e.target === imageModal) imageModal.style.display = "none";
 });
@@ -1786,9 +1482,7 @@ function escapeHtml(str) {
   return str.replace(
     /[&<>"']/g,
     (m) =>
-      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
-        m
-      ],
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[m],
   );
 }
 function escapeAttr(str) {
