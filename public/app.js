@@ -805,12 +805,13 @@ function contarProductosPorCategoria(productos) {
 // ================================================================
 let sortableInstances = [];
 
+// ⚠️ PLACEHOLDER CORREGIDO: comillas dobles codificadas como %22
 function buildProductCard(prod, extraStyle = "", role = "guest") {
   const stockValue = obtenerStockActual(prod.sku);
   let stockDisplay = "";
   if (stockValue === -1) stockDisplay = `⚠️ Agotado (${stockValue})`;
   else if (stockValue > 0) stockDisplay = `Total: ${stockValue}`;
-  const placeholder = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60'%3E%3Crect width='60' height='60' fill='%23222'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' dy='.3em' fill='%23555' font-size='20'%3E%3F%3C/text%3E%3C/svg%3E`;
+  const placeholder = `data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2260%22%3E%3Crect width=%2260%22 height=%2260%22 fill=%22%23222%22/%3E%3Ctext x=%2250%25%22 y=%2250%25%22 text-anchor=%22middle%22 dy=%22.3em%22 fill=%22%23555%22 font-size=%2220%22%3E%3F%3C/text%3E%3C/svg%3E`;
   const actionButtons = `
     <div class="product-actions">
       <button class="btn-edit" data-sku="${escapeAttr(prod.sku)}" data-nombre="${escapeAttr(prod.nombre)}" data-imagen="${escapeAttr(prod.imagenUrl)}" title="Editar">
