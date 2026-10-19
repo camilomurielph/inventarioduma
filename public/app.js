@@ -131,6 +131,17 @@ async function guardarProductosEnAPI(productosArray) {
   }
 }
 
+async function eliminarProductoEnAPI(sku) {
+  const respuesta = await fetch(`${API_BASE_URL}/productos/${encodeURIComponent(sku)}`, {
+    method: 'DELETE'
+  });
+  if (!respuesta.ok) {
+    const errorData = await respuesta.json().catch(() => ({}));
+    throw new Error(errorData.error || `HTTP ${respuesta.status}`);
+  }
+  return true;
+}
+
 // ================================================================
 //  API: STOCK POR USUARIO
 // ================================================================
@@ -450,6 +461,9 @@ async function agregarProductoNuevo(categoria) {
   }, 120);
 }
 
+// ================================================================
+//  EDITAR PRODUCTO (con soporte para cambio de SKU)
+// ================================================================
 async function editarProducto(sku, nombreActual, imagenActual) {
   if (modoTemporal) { await editarProductoTemporal(sku, nombreActual, imagenActual); return; }
   if (currentUserRole !== "admin") { toast("No tienes permiso para editar productos", "error"); return; }
@@ -469,22 +483,56 @@ async function editarProducto(sku, nombreActual, imagenActual) {
   if (nuevoSku !== sku && productosData.some((p) => p.sku === nuevoSku)) {
     toast("Ya existe un producto con ese SKU", "error"); return;
   }
+
+  const skuCambio = nuevoSku !== sku;
+  // Guardar estado anterior para revertir si falla
+  const productoOriginal = { ...productosData[index] };
+  const stockOriginal = stockStorage[sku];
+
+  // Actualizar en memoria
   productosData[index].nombre = nuevoNombre;
   productosData[index].sku = nuevoSku;
   productosData[index].imagenUrl = nuevaImagen;
-  if (nuevoSku !== sku && stockStorage[sku] !== undefined) {
-    stockStorage[nuevoSku] = stockStorage[sku];
+
+  if (skuCambio && stockOriginal !== undefined) {
+    stockStorage[nuevoSku] = stockOriginal;
     delete stockStorage[sku];
   }
+
   try {
+    // 1. Guardar lista actualizada (esto crea el nuevo SKU en la BD si cambió)
     await guardarProductosEnAPI(productosData);
+
+    // 2. Si el SKU cambió, guardar el stock bajo el nuevo SKU y eliminar el viejo
+    if (skuCambio) {
+      if (stockStorage[nuevoSku] !== undefined) {
+        await guardarStockUsuario(nuevoSku, stockStorage[nuevoSku]);
+      }
+      try {
+        await eliminarProductoEnAPI(sku);
+      } catch (errDel) {
+        // No es crítico: el nuevo SKU ya está guardado. Solo queda un duplicado del viejo.
+        console.warn("No se pudo eliminar el SKU viejo:", sku, errDel);
+      }
+    }
+
     renderizarProductos();
     toast(`"${nuevoSku}" actualizado`, "success");
   } catch (err) {
+    // Revertir cambios locales
+    productosData[index] = productoOriginal;
+    if (skuCambio) {
+      delete stockStorage[nuevoSku];
+      if (stockOriginal !== undefined) stockStorage[sku] = stockOriginal;
+    }
+    renderizarProductos();
     toast("Error al guardar en la base de datos. Los cambios no son permanentes.", "error");
   }
 }
 
+// ================================================================
+//  ELIMINAR PRODUCTO (usando endpoint DELETE específico)
+// ================================================================
 async function eliminarProducto(sku, nombre) {
   if (modoTemporal) { await eliminarProductoTemporal(sku); return; }
   if (currentUserRole !== "admin") { toast("No tienes permiso para eliminar productos", "error"); return; }
@@ -497,17 +545,29 @@ async function eliminarProducto(sku, nombre) {
   });
   if (!result) return;
   const index = productosData.findIndex((p) => p.sku === sku);
-  if (index !== -1) {
-    productosData.splice(index, 1);
-    delete stockStorage[sku];
-    try {
-      await guardarProductosEnAPI(productosData);
-      renderizarProductos();
-      actualizarConteosCategorias();
-      toast(`"${nombre}" eliminado`, "warning");
-    } catch (err) {
-      toast("Error al guardar en la base de datos. Los cambios no son permanentes.", "error");
-    }
+  if (index === -1) return;
+
+  // Guardar copia por si hay que revertir
+  const productoEliminado = { ...productosData[index] };
+  const stockEliminado = stockStorage[sku];
+
+  // Eliminar del array local
+  productosData.splice(index, 1);
+  delete stockStorage[sku];
+
+  try {
+    // Llamar al endpoint DELETE específico (el backend también borra los stocks del producto por cascade)
+    await eliminarProductoEnAPI(sku);
+    renderizarProductos();
+    actualizarConteosCategorias();
+    toast(`"${nombre}" eliminado`, "warning");
+  } catch (err) {
+    console.error("Error eliminando producto:", err);
+    toast("Error al eliminar en la base de datos. Los cambios no son permanentes.", "error");
+    // Revertir el cambio local
+    productosData.splice(index, 0, productoEliminado);
+    if (stockEliminado !== undefined) stockStorage[sku] = stockEliminado;
+    renderizarProductos();
   }
 }
 
@@ -805,7 +865,6 @@ function contarProductosPorCategoria(productos) {
 // ================================================================
 let sortableInstances = [];
 
-// ⚠️ PLACEHOLDER CORREGIDO: comillas dobles codificadas como %22
 function buildProductCard(prod, extraStyle = "", role = "guest") {
   const stockValue = obtenerStockActual(prod.sku);
   let stockDisplay = "";
